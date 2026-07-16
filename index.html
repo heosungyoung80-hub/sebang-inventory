@@ -38,14 +38,17 @@
         <!-- 헤더 -->
         <div class="green-bg p-4 md:p-6 rounded-t-2xl text-white shadow-lg flex justify-between items-center">
             <h1 class="text-xl md:text-2xl font-bold truncate">SEBANG 저장품 관리</h1>
-            <button onclick="loadDashboard()" class="text-xs md:text-sm bg-white/20 hover:bg-white/30 px-4 py-3 rounded-lg flex-shrink-0">🔄 새로고침</button>
+            <div class="flex items-center gap-2 flex-shrink-0">
+                <button onclick="openDataModal()" class="text-xs md:text-sm bg-white/20 hover:bg-white/30 px-3 py-3 rounded-lg">📁 데이터</button>
+                <button onclick="loadDashboard()" class="text-xs md:text-sm bg-white/20 hover:bg-white/30 px-4 py-3 rounded-lg">🔄 새로고침</button>
+            </div>
         </div>
 
         <!-- 통합 탭 (가로 스크롤 적용) -->
         <div class="bg-white flex border-b border-gray-200 overflow-x-auto scrollbar-hide">
             <button class="tab-btn active" onclick="showTab('dashboard', event)">대시보드 현황</button>
             <button class="tab-btn" onclick="showTab('scan', event)">QR 스캔/입출고</button>
-            <button class="tab-btn" onclick="showTab('data', event)">데이터 관리</button>
+            <button class="tab-btn" onclick="showTab('logs', event)">최근 입출고 현황</button>
         </div>
 
         <!-- 1. 대시보드 탭 -->
@@ -117,13 +120,29 @@
             </div>
         </div>
 
-        <!-- 3. CSV 관리 탭 -->
-        <div id="data" class="tab-content hidden bg-white p-4 md:p-6">
-            <div class="border-2 border-dashed border-gray-300 p-8 text-center rounded-xl bg-gray-50 flex flex-col items-center">
-                <input type="file" id="csvFile" accept=".csv" class="mb-6 max-w-full text-sm">
-                <div class="flex flex-col w-full max-w-xs gap-3">
-                    <button onclick="uploadCsv()" class="bg-[#1f7a3d] text-white w-full py-4 rounded-xl font-bold shadow-md">CSV 업로드 (미리보기)</button>
-                    <button onclick="downloadCsv()" class="bg-gray-600 text-white w-full py-4 rounded-xl font-bold shadow-md">전체 리스트 다운로드</button>
+        <!-- 3. 최근 입출고 현황 탭 -->
+        <div id="logs" class="tab-content hidden bg-white p-4 md:p-6">
+            <div id="recentLogsList" class="divide-y divide-gray-100"></div>
+            <button id="recentLogsMoreBtn" onclick="showMoreRecentLogs()" class="hidden w-full mt-4 bg-[#f2f9f4] border border-[#d1e7d6] text-[#1f7a3d] font-bold text-sm py-3 rounded-xl">+ 20개 더 보기</button>
+        </div>
+
+    </div>
+
+    <!-- 데이터 관리 모달 -->
+    <div id="dataModal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onclick="closeDataModal(event)">
+        <div class="bg-white rounded-2xl max-w-lg w-full h-[85vh] shadow-2xl flex flex-col" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center p-4 border-b border-gray-100 flex-shrink-0">
+                <h3 class="text-base font-bold text-[#1f7a3d]">📁 데이터 관리</h3>
+                <button onclick="closeDataModal()" class="text-gray-500 hover:text-gray-800 text-3xl leading-none p-2">&times;</button>
+            </div>
+            <div class="overflow-y-auto p-4 flex-1 scrollbar-hide">
+                <!-- CSV 업로드/다운로드 -->
+                <div class="border-2 border-dashed border-gray-300 p-5 text-center rounded-xl bg-gray-50 flex flex-col items-center">
+                    <input type="file" id="csvFile" accept=".csv" class="mb-4 max-w-full text-xs">
+                    <div class="flex flex-col w-full gap-2">
+                        <button onclick="uploadCsv()" class="bg-[#1f7a3d] text-white w-full py-3 rounded-xl font-bold text-sm shadow-md">CSV 업로드 (미리보기)</button>
+                        <button onclick="downloadCsv()" class="bg-gray-600 text-white w-full py-3 rounded-xl font-bold text-sm shadow-md">전체 리스트 다운로드</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -263,6 +282,10 @@
                         isCameraScanning = false;
                     }).catch(console.error);
                 }
+            }
+
+            if (tabId === 'logs') {
+                loadRecentLogs();
             }
         }
 
@@ -517,6 +540,77 @@
             document.getElementById('longStockModal').classList.remove('hidden');
         }
         function closeLongStockModal() { document.getElementById('longStockModal').classList.add('hidden'); }
+
+        // ===== 데이터 관리 모달 & 최근 입출고 현황 =====
+        let recentLogsAll = [];
+        let recentLogsShown = 0;
+        const RECENT_LOGS_PAGE = 20;
+
+        function openDataModal() {
+            document.getElementById('dataModal').classList.remove('hidden');
+        }
+        function closeDataModal(evt) {
+            if (evt && evt.target !== evt.currentTarget) return;
+            document.getElementById('dataModal').classList.add('hidden');
+        }
+
+        async function loadRecentLogs() {
+            const listEl = document.getElementById('recentLogsList');
+            const moreBtn = document.getElementById('recentLogsMoreBtn');
+            listEl.innerHTML = '<p class="text-xs text-gray-400 text-center p-4">불러오는 중...</p>';
+            moreBtn.classList.add('hidden');
+            try {
+                // 품번(partId) 없이 호출 → 전체 최근 입출고 이력을 반환한다고 가정
+                // (GAS doGet에 이 동작이 없다면 백엔드에 추가가 필요합니다)
+                const res = await fetch(`${WEB_APP_URL}?action=history`);
+                const data = await res.json();
+                if (!Array.isArray(data)) {
+                    listEl.innerHTML = '<p class="text-xs text-red-500 text-center p-4">이력을 불러오지 못했습니다. (백엔드에 전체 이력 조회 기능이 필요할 수 있습니다)</p>';
+                    return;
+                }
+                recentLogsAll = data.slice().sort((a, b) => new Date(b.date) - new Date(a.date));
+                recentLogsShown = 0;
+                listEl.innerHTML = '';
+                if (recentLogsAll.length === 0) {
+                    listEl.innerHTML = '<p class="text-xs text-gray-400 text-center p-4">입출고 이력이 없습니다.</p>';
+                    return;
+                }
+                showMoreRecentLogs();
+            } catch (err) {
+                listEl.innerHTML = '<p class="text-xs text-red-500 text-center p-4">서버 통신 실패</p>';
+                console.error(err);
+            }
+        }
+
+        function showMoreRecentLogs() {
+            const listEl = document.getElementById('recentLogsList');
+            const moreBtn = document.getElementById('recentLogsMoreBtn');
+            const nextCount = Math.min(recentLogsShown + RECENT_LOGS_PAGE, recentLogsAll.length);
+            const newItems = recentLogsAll.slice(recentLogsShown, nextCount);
+
+            newItems.forEach(h => {
+                const row = document.createElement('div');
+                row.className = 'flex justify-between items-center py-3 text-xs';
+                row.innerHTML = `
+                    <div class="min-w-0 pr-2">
+                        <p class="font-bold truncate">${h.partId} <span class="text-gray-400 font-normal">${h.partName || ''}</span></p>
+                        <p class="text-gray-400 mt-0.5">${h.date ? new Date(h.date).toLocaleString('ko-KR') : '-'}</p>
+                    </div>
+                    <div class="text-right flex-shrink-0">
+                        <p class="font-bold ${h.type === '입고' ? 'text-green-600' : 'text-red-600'}">${h.type} ${h.qty}</p>
+                        <p class="text-gray-400 mt-0.5">재고 ${h.closingStock ?? '-'}</p>
+                    </div>`;
+                listEl.appendChild(row);
+            });
+
+            recentLogsShown = nextCount;
+            if (recentLogsShown >= recentLogsAll.length) {
+                moreBtn.classList.add('hidden');
+            } else {
+                moreBtn.classList.remove('hidden');
+                moreBtn.textContent = `+ 20개 더 보기 (${recentLogsAll.length - recentLogsShown}개 남음)`;
+            }
+        }
 
         async function openItemDetailModal(partId) {
             const d = masterData.find(item => String(item.partId) === String(partId));
