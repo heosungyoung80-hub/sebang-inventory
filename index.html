@@ -1,0 +1,528 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SEBANG 저장품 통합 관리 시스템</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --brand-green: #1f7a3d; --brand-green-soft: #d8f4df; }
+        .green-bg { background-color: var(--brand-green); }
+        .green-text { color: var(--brand-green); }
+        .tab-btn { padding: 12px 24px; font-weight: bold; cursor: pointer; border-bottom: 3px solid transparent; color: #4f6d57; white-space: nowrap; }
+        .tab-btn.active { border-bottom: 3px solid var(--brand-green); color: var(--brand-green); }
+        .toast { position: fixed; top: 24px; left: 50%; transform: translateX(-50%); padding: 12px 20px; border-radius: 10px; color: white; font-weight: bold; opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 9999; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 90%; max-w: 400px; text-align: center; }
+        .toast.show { opacity: 1; }
+        .toast.success { background: var(--brand-green); }
+        .toast.error { background: #d32f2f; }
+        /* 모바일 스크롤바 숨김 처리 */
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-[#f9fbf8]">
+    <div class="max-w-6xl mx-auto p-4 mb-24">
+        <!-- 헤더 -->
+        <div class="green-bg p-4 md:p-6 rounded-t-2xl text-white shadow-lg flex justify-between items-center">
+            <h1 class="text-xl md:text-2xl font-bold truncate">SEBANG 저장품 관리</h1>
+            <button onclick="loadDashboard()" class="text-xs md:text-sm bg-white/20 hover:bg-white/30 px-4 py-3 rounded-lg flex-shrink-0">🔄 새로고침</button>
+        </div>
+
+        <!-- 통합 탭 (가로 스크롤 적용) -->
+        <div class="bg-white flex border-b border-gray-200 overflow-x-auto scrollbar-hide">
+            <button class="tab-btn active" onclick="showTab('dashboard', event)">대시보드 현황</button>
+            <button class="tab-btn" onclick="showTab('scan', event)">QR 스캔/입출고</button>
+            <button class="tab-btn" onclick="showTab('data', event)">데이터 관리</button>
+        </div>
+
+        <!-- 1. 대시보드 탭 -->
+        <div id="dashboard" class="tab-content bg-white p-4 md:p-6 shadow-sm">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6">
+                <div class="p-4 bg-white border border-[#d1e7d6] rounded-xl shadow-sm">
+                    <p class="text-[10px] font-bold text-[#4f6d57] uppercase">전체 재고 금액</p>
+                    <p id="kpi-total-value" class="text-lg md:text-xl font-bold text-[var(--brand-green)] truncate">₩ 0</p>
+                </div>
+                <div onclick="openLowStockModal()" class="p-4 bg-white border border-[#d1e7d6] rounded-xl shadow-sm cursor-pointer hover:border-red-300 transition">
+                    <p class="text-[10px] font-bold text-[#4f6d57] uppercase">안전재고 부족</p>
+                    <p id="kpi-low-stock" class="text-lg md:text-xl font-bold text-red-600">0건</p>
+                </div>
+                <div class="p-4 bg-white border border-[#d1e7d6] rounded-xl shadow-sm">
+                    <p class="text-[10px] font-bold text-[#4f6d57] uppercase">기종별 합계</p>
+                    <p id="kpi-top-category" class="text-sm md:text-lg font-bold text-[#1f7a3d] leading-tight truncate">-</p>
+                </div>
+                <div onclick="openLongStockModal()" class="p-4 bg-white border border-[#d1e7d6] rounded-xl shadow-sm cursor-pointer hover:border-orange-300 transition">
+                    <p class="text-[10px] font-bold text-[#4f6d57] uppercase">장기 재고(1년↑)</p>
+                    <p id="kpi-long-stock" class="text-lg md:text-xl font-bold text-orange-600">0건</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-6">
+                <div class="md:col-span-2 border border-gray-200 rounded-xl p-4">
+                    <h3 class="text-sm font-bold mb-3 text-[#1f7a3d]">기종별 재고 자산 분포</h3>
+                    <div id="chart-type" class="relative w-full h-[250px] md:h-[350px] bg-gray-50 rounded-lg overflow-hidden">
+                        <div class="w-full h-full flex items-center justify-center text-xs text-gray-400">데이터 로딩 중...</div>
+                    </div>
+                </div>
+                <div class="md:col-span-3 border border-gray-200 rounded-xl p-4">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-sm font-bold text-[#1f7a3d]">품목 리스트</h3>
+                        <button id="category-list-toggle-all" onclick="toggleShowAllItems()" class="text-[11px] font-bold text-white bg-[#1f7a3d] px-3 py-2 rounded-lg">전체 보기</button>
+                    </div>
+                    <!-- 실시간 검색창 -->
+                    <div class="mb-3">
+                        <input type="text" id="searchInput" oninput="renderCategoryListPanel()" placeholder="🔍 품번 또는 품명 검색..." class="w-full p-3 border border-gray-300 rounded-lg text-sm bg-gray-50 focus:bg-white focus:border-[#1f7a3d] outline-none">
+                    </div>
+                    <div id="category-list-empty" class="h-[250px] md:h-[350px] flex items-center justify-center text-xs text-gray-400 text-center px-4">
+                        기종을 선택하거나 검색어를 입력하세요.
+                    </div>
+                    <div class="overflow-y-auto overflow-x-auto w-full h-[250px] md:h-[350px] hidden scrollbar-hide" id="category-list-wrap">
+                        <table class="w-full text-xs text-left whitespace-nowrap min-w-[500px]">
+                            <thead class="bg-gray-50 sticky top-0 z-10"><tr><th class="p-2">품번</th><th class="p-2">품명</th><th class="p-2">기종</th><th class="p-2">현재고</th><th class="p-2">금액</th></tr></thead>
+                            <tbody id="category-list-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. QR/입출고 탭 -->
+        <div id="scan" class="tab-content hidden bg-white p-4 md:p-6 pb-28">
+            <div id="reader" class="w-full max-w-sm mx-auto border-2 border-dashed border-[#1f7a3d] rounded-xl overflow-hidden bg-gray-50"></div>
+            <div class="mt-6 space-y-4 max-w-sm mx-auto">
+                <input type="text" id="partId" placeholder="품번/렉번호 입력 (터치하여 입력)" class="w-full p-4 border border-gray-300 rounded-lg text-lg bg-gray-50 focus:bg-white focus:border-[#1f7a3d] outline-none">
+                <input type="number" id="qty" inputmode="numeric" pattern="[0-9]*" placeholder="수량 입력" class="w-full p-4 border border-gray-300 rounded-lg text-xl font-bold text-center bg-gray-50 focus:bg-white focus:border-[#1f7a3d] outline-none">
+            </div>
+            
+            <!-- 하단 고정 입출고 버튼 -->
+            <div id="action-buttons" class="fixed bottom-0 left-0 w-full bg-white p-4 border-t border-gray-200 shadow-[0_-10px_20px_-5px_rgba(0,0,0,0.1)] z-40 flex gap-3 hidden">
+                <button onclick="submitData('입고')" class="flex-1 green-bg text-white py-4 rounded-xl font-bold text-xl shadow-lg active:scale-95 transition-transform">입고</button>
+                <button onclick="submitData('출고')" class="flex-1 bg-[#d32f2f] text-white py-4 rounded-xl font-bold text-xl shadow-lg active:scale-95 transition-transform">출고</button>
+            </div>
+        </div>
+
+        <!-- 3. CSV 관리 탭 -->
+        <div id="data" class="tab-content hidden bg-white p-4 md:p-6">
+            <div class="border-2 border-dashed border-gray-300 p-8 text-center rounded-xl bg-gray-50 flex flex-col items-center">
+                <input type="file" id="csvFile" accept=".csv" class="mb-6 max-w-full text-sm">
+                <div class="flex flex-col w-full max-w-xs gap-3">
+                    <button onclick="uploadCsv()" class="bg-[#1f7a3d] text-white w-full py-4 rounded-xl font-bold shadow-md">CSV 업로드 (미리보기)</button>
+                    <button onclick="downloadCsv()" class="bg-gray-600 text-white w-full py-4 rounded-xl font-bold shadow-md">전체 리스트 다운로드</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 안전재고 부족 모달 -->
+    <div id="lowStockModal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onclick="closeLowStockModal(event)">
+        <div class="bg-white rounded-2xl max-w-4xl w-full h-[80vh] shadow-2xl flex flex-col" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center p-4 border-b border-gray-100 flex-shrink-0">
+                <h3 class="text-base font-bold text-red-600">⚠️ 안전재고 부족 현황</h3>
+                <button onclick="closeLowStockModal()" class="text-gray-500 hover:text-gray-800 text-3xl p-2">&times;</button>
+            </div>
+            <div class="overflow-y-auto overflow-x-auto p-4 flex-1 scrollbar-hide">
+                <table class="w-full text-xs text-left whitespace-nowrap min-w-[600px]">
+                    <thead class="bg-gray-50 sticky top-0 z-10">
+                        <tr><th class="p-2">품번</th><th class="p-2">품명</th><th class="p-2">기종</th><th class="p-2">현재고</th><th class="p-2">안전재고</th><th class="p-2">부족</th></tr>
+                    </thead>
+                    <tbody id="lowStockModalBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 장기재고 모달 -->
+    <div id="longStockModal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onclick="closeLongStockModal(event)">
+        <div class="bg-white rounded-2xl max-w-4xl w-full h-[80vh] shadow-2xl flex flex-col" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center p-4 border-b border-gray-100 flex-shrink-0">
+                <h3 class="text-base font-bold text-orange-600">🕒 장기재고(1년이상) 현황</h3>
+                <button onclick="closeLongStockModal()" class="text-gray-500 hover:text-gray-800 text-3xl p-2">&times;</button>
+            </div>
+            <div class="overflow-y-auto overflow-x-auto p-4 flex-1 scrollbar-hide">
+                <table class="w-full text-xs text-left whitespace-nowrap min-w-[600px]">
+                    <thead class="bg-gray-50 sticky top-0 z-10">
+                        <tr><th class="p-2">품번</th><th class="p-2">품명</th><th class="p-2">현재고</th><th class="p-2">단가</th><th class="p-2">재고일수</th></tr>
+                    </thead>
+                    <tbody id="longStockModalBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 품목 상세 모달 -->
+    <div id="itemDetailModal" class="hidden fixed inset-0 bg-black/60 flex items-end md:items-center justify-center z-50 md:p-4 transition-all" onclick="closeItemDetailModal(event)">
+        <div class="bg-white rounded-t-3xl md:rounded-2xl w-full max-w-2xl max-h-[85vh] shadow-2xl flex flex-col" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center p-5 border-b border-gray-100 flex-shrink-0">
+                <h3 class="text-lg font-bold text-[#1f7a3d]">📦 품목 상세 정보</h3>
+                <button onclick="closeItemDetailModal()" class="text-gray-500 hover:text-gray-800 text-3xl">&times;</button>
+            </div>
+            <div class="overflow-y-auto p-5 pt-4 flex-1" id="itemDetailBody"></div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxU7ZA41jrFuADm5Q3eXlsGjFKguiY8DJYE_pPwwQWCsq0YMdEO2wNkjLHN0OJ3pdFG/exec";
+
+        let masterData = [];
+        let categoryChart = null;
+        let lowStockItemsGlobal = [];
+        let longStockItemsGlobal = [];
+        let categoryValueMap = {};
+        let categoryQtyMap = {};
+        let selectedCategories = new Set();
+        let showAllItems = false;
+        
+        let html5QrCode = null;
+        let isCameraScanning = false;
+
+        function showToast(msg, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.className = 'toast show ' + type;
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        function showTab(tabId, evt) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.add('hidden'));
+            document.getElementById(tabId).classList.remove('hidden');
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            evt.target.classList.add('active');
+
+            const actionButtons = document.getElementById('action-buttons');
+            
+            if (tabId === 'scan') {
+                actionButtons.classList.remove('hidden');
+                
+                // 후면 카메라 자동 실행
+                if (!html5QrCode) {
+                    html5QrCode = new Html5Qrcode("reader");
+                    const qrConfig = { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 };
+                    
+                    html5QrCode.start(
+                        { facingMode: "environment" }, 
+                        qrConfig, 
+                        onScanSuccess
+                    ).then(() => {
+                        isCameraScanning = true;
+                    }).catch((err) => {
+                        console.error("카메라 실행 에러:", err);
+                        const errName = (err && err.name) ? err.name : '';
+                        const errMsg = (err && err.message) ? err.message : String(err);
+                        document.getElementById('reader').innerHTML = `
+                            <div class="p-6 text-center">
+                                <p class="text-red-500 font-bold mb-2">카메라 접근 실패</p>
+                                <p class="text-xs text-gray-700 font-bold mb-2">${errName} ${errMsg}</p>
+                                <p class="text-xs text-gray-500 text-left">1. 주소창이 https:// 로 시작하는지 확인하세요.<br>2. 브라우저 설정에서 카메라 권한을 '허용'으로 변경하세요.<br>3. 카카오톡/네이버 등 인앱 브라우저가 아닌 크롬/사파리에서 여세요.</p>
+                            </div>
+                        `;
+                    });
+                }
+            } else {
+                actionButtons.classList.add('hidden');
+                
+                // 탭 이동 시 배터리/발열 절약을 위해 카메라 점유 해제
+                if (html5QrCode && isCameraScanning) {
+                    html5QrCode.stop().then(() => {
+                        html5QrCode.clear();
+                        html5QrCode = null;
+                        isCameraScanning = false;
+                    }).catch(console.error);
+                }
+            }
+        }
+
+        function onScanSuccess(decodedText) {
+            document.getElementById('partId').value = decodedText;
+            document.getElementById('qty').focus(); 
+        }
+
+        async function loadDashboard() {
+            try {
+                const res = await fetch(WEB_APP_URL);
+                const data = await res.json();
+                if (data.error) { showToast('로드 실패: ' + data.error, 'error'); return; }
+                masterData = data;
+                renderDashboard(masterData);
+            } catch (err) {
+                console.error(err);
+                showToast('서버 연동 실패.', 'error');
+            }
+        }
+
+        function renderDashboard(data) {
+            const totalValue = data.reduce((sum, d) => sum + (Number(d.stock) || 0) * (Number(d.price) || 0), 0);
+            document.getElementById('kpi-total-value').textContent = '₩ ' + totalValue.toLocaleString();
+
+            lowStockItemsGlobal = data.filter(d => Number(d.stock) < Number(d.safetyStock));
+            document.getElementById('kpi-low-stock').textContent = lowStockItemsGlobal.length + '건';
+
+            categoryValueMap = {};
+            categoryQtyMap = {};
+            data.forEach(d => {
+                const cat = d.category || '미분류';
+                const qty = Number(d.stock) || 0;
+                const value = qty * (Number(d.price) || 0);
+                categoryValueMap[cat] = (categoryValueMap[cat] || 0) + value;
+                categoryQtyMap[cat] = (categoryQtyMap[cat] || 0) + qty;
+            });
+
+            selectedCategories.forEach(cat => { if (!(cat in categoryValueMap)) selectedCategories.delete(cat); });
+
+            renderCategoryChart();
+            updateCategoryKpi();
+            renderCategoryListPanel();
+
+            const now = new Date();
+            longStockItemsGlobal = data
+                .map(d => {
+                    const last = d.lastDate ? new Date(d.lastDate) : null;
+                    const days = last ? Math.floor((now - last) / (1000 * 60 * 60 * 24)) : null;
+                    return { ...d, days };
+                })
+                .filter(d => d.days !== null && d.days >= 365)
+                .sort((a, b) => b.days - a.days);
+
+            document.getElementById('kpi-long-stock').textContent = longStockItemsGlobal.length + '건';
+        }
+
+        function formatMillion(value) {
+            return (value / 1000000).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '백만';
+        }
+
+        function squarify(items, x, y, w, h) {
+            const result = [];
+            let remaining = items.slice();
+            function worstRatio(row, side) {
+                const sum = row.reduce((s, it) => s + it.area, 0);
+                const max = Math.max(...row.map(it => it.area));
+                const min = Math.min(...row.map(it => it.area));
+                return Math.max((side * side * max) / (sum * sum), (sum * sum) / (side * side * min));
+            }
+            while (remaining.length > 0) {
+                const shortSide = Math.min(w, h);
+                let row = [remaining[0]];
+                let bestRatio = worstRatio(row, shortSide);
+                let i = 1;
+                while (i < remaining.length) {
+                    const testRow = row.concat([remaining[i]]);
+                    const testRatio = worstRatio(testRow, shortSide);
+                    if (testRatio <= bestRatio) { row = testRow; bestRatio = testRatio; i++; } 
+                    else break;
+                }
+                const rowArea = row.reduce((s, it) => s + it.area, 0);
+                if (w >= h) {
+                    const rowWidth = rowArea / h;
+                    let curY = y;
+                    row.forEach(it => {
+                        const itHeight = it.area / rowWidth;
+                        result.push({ ...it, x, y: curY, w: rowWidth, h: itHeight });
+                        curY += itHeight;
+                    });
+                    x += rowWidth; w -= rowWidth;
+                } else {
+                    const rowHeight = rowArea / w;
+                    let curX = x;
+                    row.forEach(it => {
+                        const itWidth = it.area / rowHeight;
+                        result.push({ ...it, x: curX, y, w: itWidth, h: rowHeight });
+                        curX += itWidth;
+                    });
+                    y += rowHeight; h -= rowHeight;
+                }
+                remaining = remaining.slice(row.length);
+            }
+            return result;
+        }
+
+        function renderCategoryChart() {
+            const container = document.getElementById('chart-type');
+            const palette = ['#1f7a3d', '#3fa562', '#7fcf99', '#d4a017', '#8e6fce', '#4f6d57', '#6b9bd1', '#c97b4a', '#5a8f6f', '#b08968', '#7a6ba0', '#4a90a4'];
+            const entries = Object.entries(categoryValueMap).sort((a, b) => b[1] - a[1]);
+            const total = entries.reduce((sum, [, v]) => sum + v, 0);
+
+            if (total === 0) {
+                container.innerHTML = '<div class="w-full h-full flex items-center justify-center text-xs text-gray-400">데이터 없음</div>';
+                return;
+            }
+
+            const cw = container.clientWidth || 300;
+            const ch = container.clientHeight || 250;
+            const items = entries.map(([category, value], idx) => ({ category, value, area: value * (cw * ch / total), color: palette[idx % palette.length] }));
+            const rects = squarify(items, 0, 0, cw, ch);
+
+            container.innerHTML = rects.map(r => {
+                const pct = (r.value / total) * 100;
+                const isSelected = selectedCategories.has(r.category);
+                const ring = isSelected ? 'box-shadow: inset 0 0 0 3px white, inset 0 0 0 5px #1f7a3d; z-index:2;' : '';
+                const dim = (selectedCategories.size > 0 && !isSelected) ? 'opacity:0.45;' : '';
+                const showFull = r.w > 60 && r.h > 40;
+                let labelHtml = showFull 
+                    ? `<span class="text-[11px] font-bold truncate w-full px-1">${r.category}</span><span class="text-[9px]">${pct.toFixed(1)}%</span>` 
+                    : (r.w > 30 && r.h > 20 ? `<span class="text-[9px] font-bold truncate px-0.5">${r.category}</span>` : '');
+
+                return `<div onclick="toggleCategory('${r.category.replace(/'/g, "\\'")}')" class="absolute flex flex-col items-center justify-center text-white text-center cursor-pointer transition overflow-hidden border border-white/40" style="left:${r.x}px; top:${r.y}px; width:${r.w}px; height:${r.h}px; background-color:${r.color}; ${ring} ${dim}">${labelHtml}</div>`;
+            }).join('');
+        }
+
+        function toggleCategory(category) {
+            showAllItems = false;
+            if (selectedCategories.has(category)) selectedCategories.delete(category);
+            else selectedCategories.add(category);
+            renderCategoryChart(); updateCategoryKpi(); renderCategoryListPanel();
+        }
+
+        function updateCategoryKpi() {
+            const el = document.getElementById('kpi-top-category');
+            if (selectedCategories.size === 0) {
+                const topCategory = Object.entries(categoryValueMap).sort((a, b) => b[1] - a[1])[0];
+                el.textContent = topCategory ? `${topCategory[0]}` : '-';
+                return;
+            }
+            const selectedList = Array.from(selectedCategories);
+            el.textContent = selectedList.length <= 2 ? selectedList.join(', ') : `${selectedList.length}개 선택됨`;
+        }
+
+        function renderCategoryListPanel() {
+            const emptyEl = document.getElementById('category-list-empty');
+            const wrapEl = document.getElementById('category-list-wrap');
+            const tbody = document.getElementById('category-list-body');
+            const toggleBtn = document.getElementById('category-list-toggle-all');
+            
+            const searchInput = document.getElementById('searchInput');
+            const searchKeyword = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+            toggleBtn.textContent = showAllItems ? '선택 취소' : '전체 보기';
+
+            if (!showAllItems && selectedCategories.size === 0 && searchKeyword === '') {
+                emptyEl.classList.remove('hidden'); 
+                wrapEl.classList.add('hidden'); 
+                return;
+            }
+
+            emptyEl.classList.add('hidden'); 
+            wrapEl.classList.remove('hidden');
+
+            let targetData = masterData;
+            if (!showAllItems && selectedCategories.size > 0) {
+                targetData = masterData.filter(d => selectedCategories.has(d.category || '미분류'));
+            }
+
+            if (searchKeyword !== '') {
+                targetData = targetData.filter(d => 
+                    String(d.partId).toLowerCase().includes(searchKeyword) || 
+                    String(d.partName).toLowerCase().includes(searchKeyword)
+                );
+            }
+
+            const items = targetData.sort((a, b) => (Number(b.stock) * Number(b.price)) - (Number(a.stock) * Number(a.price)));
+
+            if (items.length === 0) { 
+                tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-gray-400">검색 결과가 없습니다</td></tr>'; 
+                return; 
+            }
+
+            tbody.innerHTML = items.map(d => `
+                <tr class="border-b border-gray-100 hover:bg-[#f2f9f4] cursor-pointer" onclick="openItemDetailModal('${String(d.partId).replace(/'/g, "\\'")}')">
+                    <td class="p-2">${d.partId}</td>
+                    <td class="p-2 truncate max-w-[100px]">${d.partName}</td>
+                    <td class="p-2">${d.category || '-'}</td>
+                    <td class="p-2 font-bold">${d.stock}</td>
+                    <td class="p-2 text-[#1f7a3d]">${formatMillion((Number(d.stock)||0)*(Number(d.price)||0))}</td>
+                </tr>`).join('');
+        }
+
+        function toggleShowAllItems() {
+            showAllItems = !showAllItems;
+            if (showAllItems) { selectedCategories.clear(); renderCategoryChart(); updateCategoryKpi(); }
+            renderCategoryListPanel();
+        }
+
+        function openLowStockModal() {
+            const tbody = document.getElementById('lowStockModalBody');
+            if (lowStockItemsGlobal.length === 0) tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center">부족 품목 없음</td></tr>';
+            else tbody.innerHTML = lowStockItemsGlobal.map(d => `
+                <tr class="border-b border-gray-100 cursor-pointer" onclick="openItemDetailModal('${String(d.partId).replace(/'/g, "\\'")}')">
+                    <td class="p-2">${d.partId}</td><td class="p-2 truncate max-w-[120px]">${d.partName}</td><td class="p-2">${d.category||'-'}</td><td class="p-2 text-red-600 font-bold">${d.stock}</td><td class="p-2">${d.safetyStock}</td><td class="p-2 text-red-500">${Number(d.safetyStock)-Number(d.stock)}</td>
+                </tr>`).join('');
+            document.getElementById('lowStockModal').classList.remove('hidden');
+        }
+        function closeLowStockModal() { document.getElementById('lowStockModal').classList.add('hidden'); }
+
+        function openLongStockModal() {
+            const tbody = document.getElementById('longStockModalBody');
+            if (longStockItemsGlobal.length === 0) tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center">장기재고 없음</td></tr>';
+            else tbody.innerHTML = longStockItemsGlobal.map(d => `
+                <tr class="border-b border-gray-100 cursor-pointer" onclick="openItemDetailModal('${String(d.partId).replace(/'/g, "\\'")}')">
+                    <td class="p-2">${d.partId}</td><td class="p-2 truncate max-w-[120px]">${d.partName}</td><td class="p-2">${d.stock}</td><td class="p-2">₩${Number(d.price||0).toLocaleString()}</td><td class="p-2 text-orange-600 font-bold">${d.days}일</td>
+                </tr>`).join('');
+            document.getElementById('longStockModal').classList.remove('hidden');
+        }
+        function closeLongStockModal() { document.getElementById('longStockModal').classList.add('hidden'); }
+
+        async function openItemDetailModal(partId) {
+            const d = masterData.find(item => String(item.partId) === String(partId));
+            if (!d) return;
+            const body = document.getElementById('itemDetailBody');
+            const imageBlock = d.imageUrl ? `<img src="${d.imageUrl}" class="w-full h-48 object-cover rounded-xl bg-gray-100">` : `<div class="w-full h-32 flex items-center justify-center bg-gray-100 rounded-xl text-4xl">📦</div>`;
+            
+            body.innerHTML = `
+                ${imageBlock}
+                <div class="grid grid-cols-2 gap-y-4 gap-x-2 mt-5 text-sm">
+                    <div><p class="text-[10px] text-gray-400">품번</p><p class="font-bold text-base">${d.partId}</p></div>
+                    <div><p class="text-[10px] text-gray-400">품명</p><p class="font-bold text-base">${d.partName}</p></div>
+                    <div><p class="text-[10px] text-gray-400">기종</p><p class="font-bold">${d.category || '-'}</p></div>
+                    <div><p class="text-[10px] text-gray-400">렉위치</p><p class="font-bold">${d.location || '-'}</p></div>
+                    <div><p class="text-[10px] text-gray-400">현재 수량</p><p class="font-bold text-lg text-[#1f7a3d]">${d.stock}${d.unit || ''}</p></div>
+                    <div><p class="text-[10px] text-gray-400">안전재고</p><p class="font-bold">${d.safetyStock ?? '-'}</p></div>
+                </div>
+                <div class="mt-6 border-t border-gray-100 pt-4">
+                    <h4 class="text-sm font-bold text-[#1f7a3d] mb-3">최근 입출고 이력</h4>
+                    <div id="itemHistoryTable" class="text-xs text-gray-500">데이터 로딩 중...</div>
+                </div>
+            `;
+            document.getElementById('itemDetailModal').classList.remove('hidden');
+
+            try {
+                const res = await fetch(`${WEB_APP_URL}?action=history&partId=${encodeURIComponent(partId)}`);
+                const history = await res.json();
+                const el = document.getElementById('itemHistoryTable');
+                if (!Array.isArray(history) || history.length === 0) el.innerHTML = '<p>이력 없음</p>';
+                else el.innerHTML = `<table class="w-full text-left whitespace-nowrap"><thead class="bg-gray-50"><tr><th class="p-2">일시</th><th class="p-2">구분</th><th class="p-2">수량</th><th class="p-2">재고</th></tr></thead><tbody>${history.slice(0,5).map(h => `<tr class="border-b border-gray-100"><td class="p-2">${h.date?new Date(h.date).toLocaleDateString('ko-KR'):'-'}</td><td class="p-2 ${h.type==='입고'?'text-green-600':'text-red-600'} font-bold">${h.type}</td><td class="p-2">${h.qty}</td><td class="p-2">${h.closingStock}</td></tr>`).join('')}</tbody></table>`;
+            } catch (err) { document.getElementById('itemHistoryTable').textContent = '로드 실패'; }
+        }
+        function closeItemDetailModal() { document.getElementById('itemDetailModal').classList.add('hidden'); }
+
+        async function submitData(type) {
+            const partId = document.getElementById('partId').value.trim();
+            const qty = document.getElementById('qty').value.trim();
+            if (!partId || !qty) { showToast('품번과 수량을 확인하세요.', 'error'); return; }
+
+            const payload = { transactionId: 'TX-'+Date.now(), partId, qty, type, user: '영' };
+
+            try {
+                const res = await fetch(WEB_APP_URL, { method: 'POST', body: JSON.stringify(payload) });
+                const result = await res.json();
+                if (result.result === '성공') {
+                    showToast(`${type} 처리 완료 (현재고: ${result.newStock})`, 'success');
+                    document.getElementById('partId').value = ''; document.getElementById('qty').value = '';
+                    loadDashboard();
+                } else showToast('오류: ' + result.error, 'error');
+            } catch (err) { showToast('서버 통신 실패', 'error'); }
+        }
+
+        function downloadCsv() {
+            if (masterData.length===0) return;
+            const rows = masterData.map(d => [d.partId, d.partName, d.stock, d.category].join(',')).join('\n');
+            const blob = new Blob(['\uFEFF품번,품명,현재고,기종\n' + rows], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = '재고.csv'; link.click();
+        }
+        function uploadCsv() { showToast('콘솔에서 미리보기를 확인하세요.', 'success'); }
+
+        window.addEventListener('DOMContentLoaded', loadDashboard);
+    </script>
+</body>
+</html>
