@@ -12,8 +12,10 @@
         :root { --brand-green: #1f7a3d; --brand-green-soft: #d8f4df; }
         .green-bg { background-color: var(--brand-green); }
         .green-text { color: var(--brand-green); }
-        .tab-btn { padding: 12px 24px; font-weight: bold; cursor: pointer; border-bottom: 3px solid transparent; color: #4f6d57; white-space: nowrap; }
+        .tab-btn { font-weight: bold; cursor: pointer; border-bottom: 3px solid transparent; color: #4f6d57; white-space: nowrap; flex: 1 1 0; text-align: center; padding: 10px 4px; font-size: 12px; }
         .tab-btn.active { border-bottom: 3px solid var(--brand-green); color: var(--brand-green); }
+        @media (min-width: 480px) { .tab-btn { font-size: 14px; padding: 12px 8px; } }
+        @media (min-width: 768px) { .tab-btn { font-size: 16px; padding: 12px 24px; } }
         .toast { position: fixed; top: 24px; left: 50%; transform: translateX(-50%); padding: 12px 20px; border-radius: 10px; color: white; font-weight: bold; opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 9999; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 90%; max-w: 400px; text-align: center; }
         .toast.show { opacity: 1; }
         .toast.success { background: var(--brand-green); }
