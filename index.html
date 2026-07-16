@@ -105,14 +105,15 @@
         <div id="scan" class="tab-content hidden bg-white p-4 md:p-6 pb-28">
             <div id="reader" class="w-full max-w-sm mx-auto border-2 border-dashed border-[#1f7a3d] rounded-xl overflow-hidden bg-gray-50"></div>
             <div class="mt-6 space-y-4 max-w-sm mx-auto">
-                <input type="text" id="partId" placeholder="품번/렉번호 입력 (터치하여 입력)" class="w-full p-4 border border-gray-300 rounded-lg text-lg bg-gray-50 focus:bg-white focus:border-[#1f7a3d] outline-none">
+                <input type="text" id="partId" placeholder="품번/렉번호 입력 (터치하여 입력)" oninput="updateScanItemInfo()" class="w-full p-4 border border-gray-300 rounded-lg text-lg bg-gray-50 focus:bg-white focus:border-[#1f7a3d] outline-none">
+                <div id="scanItemInfo" class="hidden -mt-2 p-3 rounded-lg text-sm"></div>
                 <input type="number" id="qty" inputmode="numeric" pattern="[0-9]*" placeholder="수량 입력" class="w-full p-4 border border-gray-300 rounded-lg text-xl font-bold text-center bg-gray-50 focus:bg-white focus:border-[#1f7a3d] outline-none">
             </div>
             
             <!-- 하단 고정 입출고 버튼 -->
             <div id="action-buttons" class="fixed bottom-0 left-0 w-full bg-white p-4 border-t border-gray-200 shadow-[0_-10px_20px_-5px_rgba(0,0,0,0.1)] z-40 flex gap-3 hidden">
-                <button onclick="submitData('입고')" class="flex-1 green-bg text-white py-4 rounded-xl font-bold text-xl shadow-lg active:scale-95 transition-transform">입고</button>
-                <button onclick="submitData('출고')" class="flex-1 bg-[#d32f2f] text-white py-4 rounded-xl font-bold text-xl shadow-lg active:scale-95 transition-transform">출고</button>
+                <button id="btn-in" onclick="submitData('입고')" class="flex-1 green-bg text-white py-4 rounded-xl font-bold text-xl shadow-lg active:scale-95 transition-transform disabled:opacity-60">입고</button>
+                <button id="btn-out" onclick="submitData('출고')" class="flex-1 bg-[#d32f2f] text-white py-4 rounded-xl font-bold text-xl shadow-lg active:scale-95 transition-transform disabled:opacity-60">출고</button>
             </div>
         </div>
 
@@ -267,7 +268,25 @@
 
         function onScanSuccess(decodedText) {
             document.getElementById('partId').value = decodedText;
+            updateScanItemInfo();
             document.getElementById('qty').focus(); 
+        }
+
+        // 품번 입력/스캔 시 품명·현재고를 바로 보여줌 (오인식/오입력 확인용)
+        function updateScanItemInfo() {
+            const partId = document.getElementById('partId').value.trim();
+            const infoBox = document.getElementById('scanItemInfo');
+            if (!partId) { infoBox.classList.add('hidden'); return; }
+
+            const d = masterData.find(item => String(item.partId) === String(partId));
+            infoBox.classList.remove('hidden');
+            if (!d) {
+                infoBox.className = 'p-3 rounded-lg text-sm bg-red-50 border border-red-200 text-red-600 font-bold';
+                infoBox.textContent = '⚠️ 등록되지 않은 품번입니다. 품번을 다시 확인하세요.';
+            } else {
+                infoBox.className = 'p-3 rounded-lg text-sm bg-[#f2f9f4] border border-[#d1e7d6]';
+                infoBox.innerHTML = `<span class="font-bold text-[#1f7a3d]">${d.partName}</span><br><span class="text-gray-500 text-xs">현재고 ${d.stock}${d.unit || ''} · 기종 ${d.category || '-'}</span>`;
+            }
         }
 
         async function loadDashboard() {
@@ -607,6 +626,14 @@
             const qty = document.getElementById('qty').value.trim();
             if (!partId || !qty) { showToast('품번과 수량을 확인하세요.', 'error'); return; }
 
+            const btnIn = document.getElementById('btn-in');
+            const btnOut = document.getElementById('btn-out');
+            const clickedBtn = type === '입고' ? btnIn : btnOut;
+
+            // 처리 중 표시: 두 버튼 모두 비활성화 + 클릭한 버튼에 스피너 표시 (중복 제출 방지)
+            btnIn.disabled = true; btnOut.disabled = true;
+            clickedBtn.innerHTML = '<span class="inline-block w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin align-middle"></span> 처리 중...';
+
             const payload = { transactionId: 'TX-'+Date.now(), partId, qty, type, user: '영' };
 
             try {
@@ -615,9 +642,16 @@
                 if (result.result === '성공') {
                     showToast(`${type} 처리 완료 (현재고: ${result.newStock})`, 'success');
                     document.getElementById('partId').value = ''; document.getElementById('qty').value = '';
+                    document.getElementById('scanItemInfo').classList.add('hidden');
                     loadDashboard();
                 } else showToast('오류: ' + result.error, 'error');
-            } catch (err) { showToast('서버 통신 실패', 'error'); }
+            } catch (err) {
+                showToast('서버 통신 실패', 'error');
+            } finally {
+                // 성공/실패 관계없이 버튼 원상 복구
+                btnIn.disabled = false; btnOut.disabled = false;
+                btnIn.textContent = '입고'; btnOut.textContent = '출고';
+            }
         }
 
         function downloadCsv() {
