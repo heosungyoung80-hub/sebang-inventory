@@ -631,6 +631,20 @@
             const qty = document.getElementById('qty').value.trim();
             if (!partId || !qty) { showToast('품번과 수량을 확인하세요.', 'error'); return; }
 
+            // 출고 시 현재고를 초과하는지 사전 검증 (음수 재고 방지)
+            if (type === '출고') {
+                const d = masterData.find(item => String(item.partId) === String(partId));
+                if (d) {
+                    const currentStock = Number(d.stock) || 0;
+                    const requestQty = Number(qty) || 0;
+                    if (requestQty > currentStock) {
+                        alert(`⚠️ 출고 불가\n\n품번: ${partId}\n품명: ${d.partName}\n현재고: ${currentStock}${d.unit || ''}\n요청 출고: ${requestQty}${d.unit || ''}\n\n현재고보다 많은 수량은 출고할 수 없습니다.`);
+                        showToast(`출고 불가: 현재고(${currentStock}) 초과`, 'error');
+                        return; // 서버로 전송하지 않고 중단
+                    }
+                }
+            }
+
             const btnIn = document.getElementById('btn-in');
             const btnOut = document.getElementById('btn-out');
             const clickedBtn = type === '입고' ? btnIn : btnOut;
