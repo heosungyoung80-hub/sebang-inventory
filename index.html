@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -8,6 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
         :root { --brand-green: #1f7a3d; --brand-green-soft: #d8f4df; }
         .green-bg { background-color: var(--brand-green); }
@@ -21,6 +21,16 @@
         /* 모바일 스크롤바 숨김 처리 */
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        /* QR 라벨 인쇄 전용 스타일 */
+        #printArea { display: none; }
+        .qr-label { width: 180px; padding: 8px; border: 1px dashed #999; text-align: center; display: inline-flex; flex-direction: column; align-items: center; break-inside: avoid; margin: 4px; }
+        .qr-label .part-id { font-weight: bold; font-size: 13px; margin-top: 4px; }
+        .qr-label .part-name { font-size: 10px; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
+        @media print {
+            body * { visibility: hidden; }
+            #printArea, #printArea * { visibility: visible; }
+            #printArea { display: flex; flex-wrap: wrap; position: absolute; top: 0; left: 0; width: 100%; }
+        }
     </style>
 </head>
 <body class="bg-[#f9fbf8]">
@@ -69,7 +79,10 @@
                 <div class="md:col-span-3 border border-gray-200 rounded-xl p-4">
                     <div class="flex justify-between items-center mb-3">
                         <h3 class="text-sm font-bold text-[#1f7a3d]">품목 리스트</h3>
-                        <button id="category-list-toggle-all" onclick="toggleShowAllItems()" class="text-[11px] font-bold text-white bg-[#1f7a3d] px-3 py-2 rounded-lg">전체 보기</button>
+                        <div class="flex gap-2">
+                            <button onclick="printAllQrLabels()" class="text-[11px] font-bold text-white bg-gray-600 px-3 py-2 rounded-lg">🖨️ QR 전체 인쇄</button>
+                            <button id="category-list-toggle-all" onclick="toggleShowAllItems()" class="text-[11px] font-bold text-white bg-[#1f7a3d] px-3 py-2 rounded-lg">전체 보기</button>
+                        </div>
                     </div>
                     <!-- 실시간 검색창 -->
                     <div class="mb-3">
@@ -80,7 +93,7 @@
                     </div>
                     <div class="overflow-y-auto overflow-x-auto w-full h-[250px] md:h-[350px] hidden scrollbar-hide" id="category-list-wrap">
                         <table class="w-full text-xs text-left whitespace-nowrap min-w-[500px]">
-                            <thead class="bg-gray-50 sticky top-0 z-10"><tr><th class="p-2">품번</th><th class="p-2">품명</th><th class="p-2">기종</th><th class="p-2">현재고</th><th class="p-2">금액</th></tr></thead>
+                            <thead class="bg-gray-50 sticky top-0 z-10"><tr><th class="p-2">품번</th><th class="p-2">품명</th><th class="p-2">기종</th><th class="p-2">현재고</th><th class="p-2">금액</th><th class="p-2">QR</th></tr></thead>
                             <tbody id="category-list-body"></tbody>
                         </table>
                     </div>
@@ -162,7 +175,24 @@
         </div>
     </div>
 
+    <!-- QR 라벨 모달 -->
+    <div id="qrLabelModal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onclick="closeQrLabelModal(event)">
+        <div class="bg-white rounded-2xl max-w-xs w-full shadow-2xl flex flex-col p-5" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-base font-bold text-[#1f7a3d]">📎 QR 라벨</h3>
+                <button onclick="closeQrLabelModal()" class="text-gray-500 hover:text-gray-800 text-3xl leading-none">&times;</button>
+            </div>
+            <div class="flex flex-col items-center">
+                <div id="qrLabelCanvasWrap" class="bg-white p-2"></div>
+                <p id="qrLabelPartId" class="font-bold text-lg mt-2"></p>
+                <p id="qrLabelPartName" class="text-xs text-gray-500 mb-4"></p>
+            </div>
+            <button onclick="printSingleQrLabel()" class="green-bg text-white w-full py-3 rounded-xl font-bold">🖨️ 이 라벨 인쇄</button>
+        </div>
+    </div>
+
     <div id="toast" class="toast"></div>
+    <div id="printArea"></div>
 
     <script>
         const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxU7ZA41jrFuADm5Q3eXlsGjFKguiY8DJYE_pPwwQWCsq0YMdEO2wNkjLHN0OJ3pdFG/exec";
@@ -432,6 +462,7 @@
                     <td class="p-2">${d.category || '-'}</td>
                     <td class="p-2 font-bold">${d.stock}</td>
                     <td class="p-2 text-[#1f7a3d]">${formatMillion((Number(d.stock)||0)*(Number(d.price)||0))}</td>
+                    <td class="p-2" onclick="event.stopPropagation()"><button onclick="openQrLabelModal('${String(d.partId).replace(/'/g, "\\'")}','${String(d.partName||'').replace(/'/g, "\\'")}')" class="text-[10px] font-bold text-white bg-gray-600 px-2 py-1 rounded">QR</button></td>
                 </tr>`).join('');
         }
 
@@ -479,6 +510,7 @@
                     <div><p class="text-[10px] text-gray-400">현재 수량</p><p class="font-bold text-lg text-[#1f7a3d]">${d.stock}${d.unit || ''}</p></div>
                     <div><p class="text-[10px] text-gray-400">안전재고</p><p class="font-bold">${d.safetyStock ?? '-'}</p></div>
                 </div>
+                <button onclick="openQrLabelModal('${String(d.partId).replace(/'/g, "\\'")}','${String(d.partName||'').replace(/'/g, "\\'")}')" class="w-full mt-4 bg-gray-600 text-white py-3 rounded-xl font-bold text-sm">📎 이 품목 QR 라벨 보기/인쇄</button>
                 <div class="mt-6 border-t border-gray-100 pt-4">
                     <h4 class="text-sm font-bold text-[#1f7a3d] mb-3">최근 입출고 이력</h4>
                     <div id="itemHistoryTable" class="text-xs text-gray-500">데이터 로딩 중...</div>
@@ -495,6 +527,80 @@
             } catch (err) { document.getElementById('itemHistoryTable').textContent = '로드 실패'; }
         }
         function closeItemDetailModal() { document.getElementById('itemDetailModal').classList.add('hidden'); }
+
+        // ===== QR 라벨 생성/인쇄 =====
+        let currentQrItem = null;
+
+        function openQrLabelModal(partId, partName) {
+            currentQrItem = { partId, partName };
+            document.getElementById('qrLabelPartId').textContent = partId;
+            document.getElementById('qrLabelPartName').textContent = partName || '';
+            const wrap = document.getElementById('qrLabelCanvasWrap');
+            wrap.innerHTML = '';
+            document.getElementById('qrLabelModal').classList.remove('hidden'); // 먼저 팝업부터 연다
+
+            if (typeof QRCode === 'undefined') {
+                wrap.innerHTML = '<p class="text-red-500 text-xs font-bold p-4">QR 라이브러리 로드 실패<br>(인터넷 연결을 확인하고 새로고침 해주세요)</p>';
+                return;
+            }
+            try {
+                new QRCode(wrap, { text: String(partId), width: 180, height: 180, colorDark: '#000000', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M });
+            } catch (e) {
+                wrap.innerHTML = `<p class="text-red-500 text-xs font-bold p-4">QR 생성 오류: ${e.message}</p>`;
+                console.error(e);
+            }
+        }
+        function closeQrLabelModal(evt) {
+            if (evt && evt.target !== evt.currentTarget) return;
+            document.getElementById('qrLabelModal').classList.add('hidden');
+        }
+
+        function printSingleQrLabel() {
+            if (!currentQrItem) return;
+            renderPrintLabels([currentQrItem]);
+        }
+
+        function printAllQrLabels() {
+            if (typeof QRCode === 'undefined') { showToast('QR 라이브러리 로드 실패. 새로고침 후 다시 시도하세요.', 'error'); return; }
+            // 현재 화면(검색/선택 필터)에 표시된 품목 기준으로 라벨 생성
+            const searchInput = document.getElementById('searchInput');
+            const searchKeyword = searchInput ? searchInput.value.trim().toLowerCase() : '';
+            let targetData = masterData;
+            if (!showAllItems && selectedCategories.size > 0) {
+                targetData = masterData.filter(d => selectedCategories.has(d.category || '미분류'));
+            }
+            if (searchKeyword !== '') {
+                targetData = targetData.filter(d =>
+                    String(d.partId).toLowerCase().includes(searchKeyword) ||
+                    String(d.partName).toLowerCase().includes(searchKeyword)
+                );
+            }
+            if (targetData.length === 0) { showToast('인쇄할 품목이 없습니다.', 'error'); return; }
+            if (targetData.length > 200 && !confirm(`${targetData.length}개 품목을 모두 인쇄하시겠습니까? 시간이 걸릴 수 있습니다.`)) return;
+            renderPrintLabels(targetData.map(d => ({ partId: d.partId, partName: d.partName })));
+        }
+
+        function renderPrintLabels(list) {
+            const printArea = document.getElementById('printArea');
+            printArea.innerHTML = '';
+            list.forEach(item => {
+                const labelDiv = document.createElement('div');
+                labelDiv.className = 'qr-label';
+                const qrWrap = document.createElement('div');
+                labelDiv.appendChild(qrWrap);
+                const idP = document.createElement('p');
+                idP.className = 'part-id';
+                idP.textContent = item.partId;
+                const nameP = document.createElement('p');
+                nameP.className = 'part-name';
+                nameP.textContent = item.partName || '';
+                labelDiv.appendChild(idP);
+                labelDiv.appendChild(nameP);
+                printArea.appendChild(labelDiv);
+                new QRCode(qrWrap, { text: String(item.partId), width: 130, height: 130, colorDark: '#000000', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M });
+            });
+            setTimeout(() => window.print(), 400); // 렌더링(캔버스→이미지 변환) 여유시간 확보 후 인쇄
+        }
 
         async function submitData(type) {
             const partId = document.getElementById('partId').value.trim();
