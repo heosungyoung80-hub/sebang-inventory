@@ -76,7 +76,13 @@
 
             <div class="grid grid-cols-1 md:grid-cols-5 gap-6">
                 <div class="md:col-span-2 border border-gray-200 rounded-xl p-4">
-                    <h3 class="text-sm font-bold mb-3 text-[#1f7a3d]">기종별 재고 자산 분포</h3>
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-sm font-bold text-[#1f7a3d]">기종별 재고 자산 분포</h3>
+                        <div class="flex gap-2">
+                            <button onclick="selectAllCategories()" class="text-[11px] font-bold text-white bg-[#1f7a3d] px-2 py-1.5 rounded-lg">전체 선택</button>
+                            <button onclick="clearAllCategories()" class="text-[11px] font-bold text-white bg-gray-500 px-2 py-1.5 rounded-lg">전체 해제</button>
+                        </div>
+                    </div>
                     <div id="chart-type" class="relative w-full h-[250px] md:h-[350px] bg-gray-50 rounded-lg overflow-hidden">
                         <div class="w-full h-full flex items-center justify-center text-xs text-gray-400">데이터 로딩 중...</div>
                     </div>
@@ -440,7 +446,7 @@
                 const dim = (selectedCategories.size > 0 && !isSelected) ? 'opacity:0.45;' : '';
                 const showFull = r.w > 60 && r.h > 40;
                 let labelHtml = showFull 
-                    ? `<span class="text-[11px] font-bold truncate w-full px-1">${r.category}</span><span class="text-[9px]">${pct.toFixed(1)}%</span>` 
+                    ? `<span class="text-[11px] font-bold truncate w-full px-1">${r.category}</span><span class="text-[9px]">${pct.toFixed(1)}%</span><span class="text-[9px]">${formatMillion(r.value)}</span>` 
                     : (r.w > 30 && r.h > 20 ? `<span class="text-[9px] font-bold truncate px-0.5">${r.category}</span>` : '');
 
                 return `<div onclick="toggleCategory('${r.category.replace(/'/g, "\\'")}')" class="absolute flex flex-col items-center justify-center text-white text-center cursor-pointer transition overflow-hidden border border-white/40" style="left:${r.x}px; top:${r.y}px; width:${r.w}px; height:${r.h}px; background-color:${r.color}; ${ring} ${dim}">${labelHtml}</div>`;
@@ -451,6 +457,17 @@
             showAllItems = false;
             if (selectedCategories.has(category)) selectedCategories.delete(category);
             else selectedCategories.add(category);
+            renderCategoryChart(); updateCategoryKpi(); renderCategoryListPanel();
+        }
+
+        function selectAllCategories() {
+            showAllItems = false;
+            selectedCategories = new Set(Object.keys(categoryValueMap));
+            renderCategoryChart(); updateCategoryKpi(); renderCategoryListPanel();
+        }
+
+        function clearAllCategories() {
+            selectedCategories.clear();
             renderCategoryChart(); updateCategoryKpi(); renderCategoryListPanel();
         }
 
@@ -614,23 +631,61 @@
             }
         }
 
+        function copyPartId(partId) {
+            const text = String(partId);
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showToast('품번이 복사되었습니다.', 'success');
+                }).catch(() => {
+                    fallbackCopy(text);
+                });
+            } else {
+                fallbackCopy(text);
+            }
+        }
+
+        function fallbackCopy(text) {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.focus(); ta.select();
+            try {
+                document.execCommand('copy');
+                showToast('품번이 복사되었습니다.', 'success');
+            } catch (e) {
+                showToast('복사에 실패했습니다.', 'error');
+            }
+            document.body.removeChild(ta);
+        }
+
         async function openItemDetailModal(partId) {
             const d = masterData.find(item => String(item.partId) === String(partId));
             if (!d) return;
             const body = document.getElementById('itemDetailBody');
             const imageBlock = d.imageUrl ? `<img src="${d.imageUrl}" class="w-full h-48 object-cover rounded-xl bg-gray-100">` : `<div class="w-full h-32 flex items-center justify-center bg-gray-100 rounded-xl text-4xl">📦</div>`;
+            const safePartId = String(d.partId).replace(/'/g, "\\'");
             
             body.innerHTML = `
                 ${imageBlock}
                 <div class="grid grid-cols-2 gap-y-4 gap-x-2 mt-5 text-sm">
-                    <div><p class="text-[10px] text-gray-400">품번</p><p class="font-bold text-base">${d.partId}</p></div>
+                    <div>
+                        <p class="text-[10px] text-gray-400">품번</p>
+                        <div class="flex items-center gap-2">
+                            <p class="font-bold text-base">${d.partId}</p>
+                            <button onclick="copyPartId('${safePartId}')" title="품번 복사" class="text-gray-400 hover:text-[#1f7a3d] p-1 -m-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                            </button>
+                        </div>
+                    </div>
                     <div><p class="text-[10px] text-gray-400">품명</p><p class="font-bold text-base">${d.partName}</p></div>
                     <div><p class="text-[10px] text-gray-400">기종</p><p class="font-bold">${d.category || '-'}</p></div>
                     <div><p class="text-[10px] text-gray-400">렉위치</p><p class="font-bold">${d.location || '-'}</p></div>
                     <div><p class="text-[10px] text-gray-400">현재 수량</p><p class="font-bold text-lg text-[#1f7a3d]">${d.stock}${d.unit || ''}</p></div>
                     <div><p class="text-[10px] text-gray-400">안전재고</p><p class="font-bold">${d.safetyStock ?? '-'}</p></div>
                 </div>
-                <button onclick="openQrLabelModal('${String(d.partId).replace(/'/g, "\\'")}','${String(d.partName||'').replace(/'/g, "\\'")}')" class="w-full mt-4 bg-gray-600 text-white py-3 rounded-xl font-bold text-sm">📎 이 품목 QR 라벨 보기/인쇄</button>
+                <button onclick="openQrLabelModal('${safePartId}','${String(d.partName||'').replace(/'/g, "\\'")}')" class="w-full mt-4 bg-gray-600 text-white py-3 rounded-xl font-bold text-sm">📎 이 품목 QR 라벨 보기/인쇄</button>
                 <div class="mt-6 border-t border-gray-100 pt-4">
                     <h4 class="text-sm font-bold text-[#1f7a3d] mb-3">최근 입출고 이력</h4>
                     <div id="itemHistoryTable" class="text-xs text-gray-500">데이터 로딩 중...</div>
