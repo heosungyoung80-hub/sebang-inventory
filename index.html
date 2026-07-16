@@ -285,7 +285,12 @@
                 infoBox.textContent = '⚠️ 등록되지 않은 품번입니다. 품번을 다시 확인하세요.';
             } else {
                 infoBox.className = 'p-3 rounded-lg text-sm bg-[#f2f9f4] border border-[#d1e7d6]';
-                infoBox.innerHTML = `<span class="font-bold text-[#1f7a3d]">${d.partName}</span><br><span class="text-gray-500 text-xs">현재고 ${d.stock}${d.unit || ''} · 기종 ${d.category || '-'}</span>`;
+                infoBox.innerHTML = `
+                    <div class="flex justify-between items-start gap-2">
+                        <span class="font-bold text-[#1f7a3d]">${d.partName}</span>
+                        <span class="flex-shrink-0 bg-[#1f7a3d] text-white text-xs font-bold px-2 py-1 rounded">📍 ${d.location || '위치 미등록'}</span>
+                    </div>
+                    <span class="text-gray-500 text-xs">현재고 ${d.stock}${d.unit || ''} · 기종 ${d.category || '-'}</span>`;
             }
         }
 
