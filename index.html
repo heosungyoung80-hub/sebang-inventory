@@ -465,10 +465,15 @@
                 return;
             }
 
-            const cw = container.clientWidth || 300;
-            const ch = container.clientHeight || 250;
+            const box = container.getBoundingClientRect();
+            const cw = Math.floor(box.width) || 300;
+            const ch = Math.floor(box.height) || 250;
             const items = entries.map(([category, value], idx) => ({ category, value, area: value * (cw * ch / total), color: palette[idx % palette.length] }));
-            const rects = squarify(items, 0, 0, cw, ch);
+            // 소수점 누적 오차로 칸이 상자 밖으로 삐져나오지 않도록 마지막에 잘라줌
+            const rects = squarify(items, 0, 0, cw, ch).map(r => {
+                const x = Math.max(0, r.x), y = Math.max(0, r.y);
+                return Object.assign({}, r, { x, y, w: Math.min(r.w, cw - x), h: Math.min(r.h, ch - y) });
+            });
 
             container.innerHTML = rects.map(r => {
                 const pct = (r.value / total) * 100;
@@ -484,6 +489,19 @@
                 return `<div onclick="toggleCategory('${r.category.replace(/'/g, "\\'")}')" class="tm-cell ${tier}" style="left:${r.x}px; top:${r.y}px; width:${r.w}px; height:${r.h}px; background-color:${r.color}; --s:${zoom.toFixed(2)}; ${ring} ${dim}">${labelHtml}</div>`;
             }).join('');
         }
+
+        // 상자 크기가 바뀌면 트리맵을 다시 그림
+        let chartResizeTimer = null;
+        (function watchChartSize() {
+            const el = document.getElementById('chart-type');
+            if (!el || typeof ResizeObserver === 'undefined') return;
+            new ResizeObserver(() => {
+                clearTimeout(chartResizeTimer);
+                chartResizeTimer = setTimeout(() => {
+                    if (Object.keys(categoryValueMap).length > 0) renderCategoryChart();
+                }, 120);
+            }).observe(el);
+        })();
 
         function toggleCategory(category) {
             showAllItems = false;
