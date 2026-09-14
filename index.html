@@ -48,6 +48,27 @@
         .tm-cell.tiny:hover .lbl { opacity: 1; }
         .tm-cell.tiny:hover .c-pct, .tm-cell.tiny:hover .c-val { display: block; }
 
+        /* "기타" 칸에 커서를 올리면 나오는 세부 목록 */
+        #etc-popover {
+            position: absolute; z-index: 80; width: 210px; max-height: 300px; overflow-y: auto;
+            background: #fff; border: 1px solid #d1d5db; border-radius: 10px;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.22); padding: 8px 0; display: none;
+        }
+        #etc-popover .etc-head {
+            font-size: 11px; font-weight: 700; color: #4f6d57; padding: 2px 12px 7px;
+            border-bottom: 1px solid #f1f5f9; margin-bottom: 4px;
+        }
+        #etc-popover .etc-row {
+            display: flex; align-items: center; gap: 8px; padding: 7px 12px; cursor: pointer; font-size: 12px;
+        }
+        #etc-popover .etc-row:hover { background: #f2f9f4; }
+        #etc-popover .etc-row .dot { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; background: #94a3b8; }
+        #etc-popover .etc-row .nm { flex: 1; min-width: 0; font-weight: 700; color: #1f2937; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #etc-popover .etc-row .vl { color: #1f7a3d; font-weight: 700; white-space: nowrap; }
+        #etc-popover .etc-row .pc { color: #9ca3af; font-size: 11px; white-space: nowrap; }
+        #etc-popover .etc-row.on { background: #e8f4ec; }
+        .tm-cell.etc:hover { transform: scale(1.02); }
+
         /* 모바일 스크롤바 숨김 처리 */
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
@@ -456,6 +477,8 @@
 
         // 금액이 작은 기종은 "기타" 한 칸으로 묶어서 보여줌 (점처럼 쪼개지는 것 방지)
         let etcCategories = [];
+        let etcDetails = [];
+        let etcTotalRef = 0;
         const ETC_MIN_RATIO = 0.02;   // 전체의 2% 미만이면 기타로 묶음
         const MAX_CELLS = 10;         // 최대 칸 수 (기타 포함)
 
@@ -478,6 +501,9 @@
                 else small.push([category, value]);
             });
             etcCategories = small.map(([c]) => c);
+            etcDetails = small.slice();   // 기타에 묶인 기종별 금액 (커서 올렸을 때 보여줌)
+            etcTotalRef = total;
+            hideEtcPopover();
 
             const display = big.map(([category, value], idx) => ({ category, value, isEtc: false, color: palette[idx % palette.length] }));
             if (small.length === 1) {
@@ -516,10 +542,60 @@
                 // 커서를 올렸을 때 최소 가로 130 / 세로 84 는 확보되도록 배율 계산 (최대 2.6배)
                 const zoom = Math.min(2.6, Math.max(1.06, 130 / r.w, 84 / r.h));
                 const click = r.isEtc ? 'toggleEtcGroup()' : `toggleCategory('${String(r.category).replace(/'/g, "\\'")}')`;
+                const hover = r.isEtc ? ` onmouseenter="showEtcPopover(this)"` : '';
                 const labelHtml = `<span class="lbl"><span class="c-name">${r.category}</span><span class="c-pct">${pct.toFixed(1)}%</span><span class="c-val">${formatMillion(r.value)}</span></span>`;
 
-                return `<div onclick="${click}" class="tm-cell ${tier}" style="left:${r.x}px; top:${r.y}px; width:${r.w}px; height:${r.h}px; background-color:${r.color}; --s:${zoom.toFixed(2)}; ${ring} ${dim}">${labelHtml}</div>`;
+                return `<div onclick="${click}"${hover} class="tm-cell ${tier}${r.isEtc ? ' etc' : ''}" style="left:${r.x}px; top:${r.y}px; width:${r.w}px; height:${r.h}px; background-color:${r.color}; --s:${zoom.toFixed(2)}; ${ring} ${dim}">${labelHtml}</div>`;
             }).join('');
+        }
+
+        // "기타" 칸에 커서를 올리면 묶인 기종을 하나씩 볼 수 있는 목록을 띄움
+        function ensureEtcPopover() {
+            let pop = document.getElementById('etc-popover');
+            if (!pop) {
+                pop = document.createElement('div');
+                pop.id = 'etc-popover';
+                pop.addEventListener('mouseleave', hideEtcPopover);
+                document.getElementById('chart-type').appendChild(pop);
+            }
+            return pop;
+        }
+
+        function showEtcPopover(cellEl) {
+            if (!etcDetails || etcDetails.length === 0) return;
+            const pop = ensureEtcPopover();
+            const container = document.getElementById('chart-type');
+            const cw = container.clientWidth, chh = container.clientHeight;
+
+            pop.innerHTML = `<div class="etc-head">기타 ${etcDetails.length}종 · 클릭하면 해당 기종만 선택됩니다</div>` +
+                etcDetails.map(([cat, val]) => {
+                    const pct = etcTotalRef ? (val / etcTotalRef) * 100 : 0;
+                    const on = selectedCategories.has(cat) ? ' on' : '';
+                    const safe = String(cat).replace(/'/g, "\\'");
+                    return `<div class="etc-row${on}" onclick="toggleCategory('${safe}')">
+                                <span class="dot"></span>
+                                <span class="nm">${cat}</span>
+                                <span class="vl">${formatMillion(val)}</span>
+                                <span class="pc">${pct.toFixed(1)}%</span>
+                            </div>`;
+                }).join('');
+
+            pop.style.display = 'block';
+            // 칸 오른쪽에 붙이되, 공간이 없으면 왼쪽에 붙임
+            const cellLeft = parseFloat(cellEl.style.left) || 0;
+            const cellTop = parseFloat(cellEl.style.top) || 0;
+            const cellW = parseFloat(cellEl.style.width) || 0;
+            const popW = pop.offsetWidth, popH = pop.offsetHeight;
+            let left = cellLeft + cellW + 10;
+            if (left + popW > cw) left = Math.max(4, cellLeft - popW - 10);
+            let top = Math.min(Math.max(0, cellTop), Math.max(0, chh - popH));
+            pop.style.left = left + 'px';
+            pop.style.top = top + 'px';
+        }
+
+        function hideEtcPopover() {
+            const pop = document.getElementById('etc-popover');
+            if (pop) pop.style.display = 'none';
         }
 
         // "기타" 칸을 누르면 묶여 있는 기종 전체가 함께 선택/해제됨
@@ -530,6 +606,12 @@
             etcCategories.forEach(c => { if (allSelected) selectedCategories.delete(c); else selectedCategories.add(c); });
             renderCategoryChart(); updateCategoryKpi(); renderCategoryListPanel();
         }
+
+        // 차트 영역 밖으로 커서가 나가면 기타 목록을 닫음
+        (function bindEtcPopoverClose() {
+            const el = document.getElementById('chart-type');
+            if (el) el.addEventListener('mouseleave', hideEtcPopover);
+        })();
 
         // 상자 크기가 바뀌면 트리맵을 다시 그림
         let chartResizeTimer = null;
