@@ -454,6 +454,11 @@
             return result;
         }
 
+        // 금액이 작은 기종은 "기타" 한 칸으로 묶어서 보여줌 (점처럼 쪼개지는 것 방지)
+        let etcCategories = [];
+        const ETC_MIN_RATIO = 0.02;   // 전체의 2% 미만이면 기타로 묶음
+        const MAX_CELLS = 10;         // 최대 칸 수 (기타 포함)
+
         function renderCategoryChart() {
             const container = document.getElementById('chart-type');
             const palette = ['#1f7a3d', '#3fa562', '#7fcf99', '#d4a017', '#8e6fce', '#4f6d57', '#6b9bd1', '#c97b4a', '#5a8f6f', '#b08968', '#7a6ba0', '#4a90a4'];
@@ -462,32 +467,68 @@
 
             if (total === 0) {
                 container.innerHTML = '<div class="w-full h-full flex items-center justify-center text-xs text-gray-400">데이터 없음</div>';
+                etcCategories = [];
                 return;
             }
 
-            const box = container.getBoundingClientRect();
-            const cw = Math.floor(box.width) || 300;
-            const ch = Math.floor(box.height) || 250;
-            const items = entries.map(([category, value], idx) => ({ category, value, area: value * (cw * ch / total), color: palette[idx % palette.length] }));
-            // 소수점 누적 오차로 칸이 상자 밖으로 삐져나오지 않도록 마지막에 잘라줌
-            const rects = squarify(items, 0, 0, cw, ch).map(r => {
-                const x = Math.max(0, r.x), y = Math.max(0, r.y);
-                return Object.assign({}, r, { x, y, w: Math.min(r.w, cw - x), h: Math.min(r.h, ch - y) });
+            // 큰 기종은 그대로, 작은 기종은 모아서 "기타" 한 칸으로
+            const big = [], small = [];
+            entries.forEach(([category, value], idx) => {
+                if (value / total >= ETC_MIN_RATIO && big.length < MAX_CELLS - 1) big.push([category, value]);
+                else small.push([category, value]);
             });
+            etcCategories = small.map(([c]) => c);
+
+            const display = big.map(([category, value], idx) => ({ category, value, isEtc: false, color: palette[idx % palette.length] }));
+            if (small.length === 1) {
+                display.push({ category: small[0][0], value: small[0][1], isEtc: false, color: palette[display.length % palette.length] });
+                etcCategories = [];
+            } else if (small.length > 1) {
+                display.push({
+                    category: `기타 ${small.length}종`,
+                    value: small.reduce((sum, [, v]) => sum + v, 0),
+                    isEtc: true,
+                    color: '#94a3b8'
+                });
+            }
+
+            const box = container.getBoundingClientRect();
+            const cw = Math.max(1, Math.floor(box.width) || 300);
+            const ch = Math.max(1, Math.floor(box.height) || 250);
+            const items = display.map(d => Object.assign({}, d, { area: d.value * (cw * ch / total) }));
+
+            // 소수점 오차로 칸이 상자 밖으로 나가지 않도록 경계를 정리
+            const rects = squarify(items, 0, 0, cw, ch).map(r => {
+                const x = Math.min(Math.max(0, r.x), cw);
+                const y = Math.min(Math.max(0, r.y), ch);
+                return Object.assign({}, r, { x, y, w: Math.max(0, Math.min(r.w, cw - x)), h: Math.max(0, Math.min(r.h, ch - y)) });
+            }).filter(r => r.w >= 2 && r.h >= 2);
 
             container.innerHTML = rects.map(r => {
                 const pct = (r.value / total) * 100;
-                const isSelected = selectedCategories.has(r.category);
+                const isSelected = r.isEtc
+                    ? (etcCategories.length > 0 && etcCategories.every(c => selectedCategories.has(c)))
+                    : selectedCategories.has(r.category);
                 const ring = isSelected ? 'box-shadow: inset 0 0 0 3px white, inset 0 0 0 5px #1f7a3d; z-index:2;' : '';
                 const dim = (selectedCategories.size > 0 && !isSelected) ? 'opacity:0.45;' : '';
                 // 칸 크기에 따라 글자 표시 단계를 나눔
                 const tier = (r.w > 90 && r.h > 62) ? 'full' : ((r.w > 52 && r.h > 30) ? 'mid' : 'tiny');
                 // 커서를 올렸을 때 최소 가로 130 / 세로 84 는 확보되도록 배율 계산 (최대 2.6배)
                 const zoom = Math.min(2.6, Math.max(1.06, 130 / r.w, 84 / r.h));
+                const click = r.isEtc ? 'toggleEtcGroup()' : `toggleCategory('${String(r.category).replace(/'/g, "\\'")}')`;
                 const labelHtml = `<span class="lbl"><span class="c-name">${r.category}</span><span class="c-pct">${pct.toFixed(1)}%</span><span class="c-val">${formatMillion(r.value)}</span></span>`;
 
-                return `<div onclick="toggleCategory('${r.category.replace(/'/g, "\\'")}')" class="tm-cell ${tier}" style="left:${r.x}px; top:${r.y}px; width:${r.w}px; height:${r.h}px; background-color:${r.color}; --s:${zoom.toFixed(2)}; ${ring} ${dim}">${labelHtml}</div>`;
+                return `<div onclick="${click}" class="tm-cell ${tier}" style="left:${r.x}px; top:${r.y}px; width:${r.w}px; height:${r.h}px; background-color:${r.color}; --s:${zoom.toFixed(2)}; ${ring} ${dim}">${labelHtml}</div>`;
             }).join('');
+        }
+
+        // "기타" 칸을 누르면 묶여 있는 기종 전체가 함께 선택/해제됨
+        function toggleEtcGroup() {
+            if (etcCategories.length === 0) return;
+            showAllItems = false;
+            const allSelected = etcCategories.every(c => selectedCategories.has(c));
+            etcCategories.forEach(c => { if (allSelected) selectedCategories.delete(c); else selectedCategories.add(c); });
+            renderCategoryChart(); updateCategoryKpi(); renderCategoryListPanel();
         }
 
         // 상자 크기가 바뀌면 트리맵을 다시 그림
