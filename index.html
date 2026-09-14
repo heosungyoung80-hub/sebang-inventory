@@ -24,6 +24,30 @@
         .toast.show { opacity: 1; }
         .toast.success { background: var(--brand-green); }
         .toast.error { background: #d32f2f; }
+        /* 기종별 재고 자산 분포 - 커서를 올리면 읽을 수 있는 크기까지 커짐 */
+        .tm-cell {
+            position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            color: #fff; text-align: center; overflow: hidden; cursor: pointer; border-radius: 2px;
+            border: 1px solid rgba(255,255,255,0.4);
+            transition: transform .18s cubic-bezier(.22,.8,.3,1), box-shadow .18s ease, border-color .18s ease, opacity .18s ease;
+        }
+        .tm-cell:hover {
+            transform: scale(var(--s, 1.08));
+            z-index: 50; border-color: #fff; border-radius: 6px; opacity: 1 !important;
+            box-shadow: 0 10px 28px rgba(0,0,0,0.35);
+        }
+        .tm-cell .lbl { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; }
+        .tm-cell .c-name { font-size: 15px; font-weight: 700; line-height: 1.2; padding: 0 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tm-cell .c-pct { font-size: 12.5px; margin-top: 2px; }
+        .tm-cell .c-val { font-size: 12px; opacity: .9; }
+        .tm-cell.mid .c-name { font-size: 12px; }
+        .tm-cell.mid .c-pct, .tm-cell.mid .c-val { display: none; }
+        .tm-cell.tiny .c-name { font-size: 8px; }
+        .tm-cell.tiny .c-pct, .tm-cell.tiny .c-val { font-size: 7px; display: none; }
+        .tm-cell.tiny .lbl { opacity: 0; transition: opacity .15s ease; }
+        .tm-cell.tiny:hover .lbl { opacity: 1; }
+        .tm-cell.tiny:hover .c-pct, .tm-cell.tiny:hover .c-val { display: block; }
+
         /* 모바일 스크롤바 숨김 처리 */
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
@@ -81,8 +105,8 @@
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-5 gap-6">
-                <div class="md:col-span-2 border border-gray-200 rounded-xl p-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="border border-gray-200 rounded-xl p-4">
                     <div class="flex justify-between items-center mb-3">
                         <h3 class="text-sm font-bold text-[#1f7a3d]">기종별 재고 자산 분포</h3>
                         <div class="flex gap-2">
@@ -90,11 +114,11 @@
                             <button onclick="clearAllCategories()" class="text-[11px] font-bold text-white bg-gray-500 px-2 py-1.5 rounded-lg">전체 해제</button>
                         </div>
                     </div>
-                    <div id="chart-type" class="relative w-full h-[250px] md:h-[350px] bg-gray-50 rounded-lg overflow-hidden">
+                    <div id="chart-type" class="relative w-full h-[280px] md:h-[420px] bg-gray-50 rounded-lg">
                         <div class="w-full h-full flex items-center justify-center text-xs text-gray-400">데이터 로딩 중...</div>
                     </div>
                 </div>
-                <div class="md:col-span-3 border border-gray-200 rounded-xl p-4">
+                <div class="border border-gray-200 rounded-xl p-4">
                     <div class="flex justify-between items-center mb-3">
                         <h3 class="text-sm font-bold text-[#1f7a3d]">품목 리스트</h3>
                         <div class="flex gap-2">
@@ -106,10 +130,10 @@
                     <div class="mb-3">
                         <input type="text" id="searchInput" oninput="renderCategoryListPanel()" placeholder="🔍 품번 또는 품명 검색..." class="w-full p-3 border border-gray-300 rounded-lg text-sm bg-gray-50 focus:bg-white focus:border-[#1f7a3d] outline-none">
                     </div>
-                    <div id="category-list-empty" class="h-[250px] md:h-[350px] flex items-center justify-center text-xs text-gray-400 text-center px-4">
+                    <div id="category-list-empty" class="h-[280px] md:h-[420px] flex items-center justify-center text-xs text-gray-400 text-center px-4">
                         기종을 선택하거나 검색어를 입력하세요.
                     </div>
-                    <div class="overflow-y-auto overflow-x-auto w-full h-[250px] md:h-[350px] hidden scrollbar-hide" id="category-list-wrap">
+                    <div class="overflow-y-auto overflow-x-auto w-full h-[280px] md:h-[420px] hidden scrollbar-hide" id="category-list-wrap">
                         <table class="w-full text-xs text-left whitespace-nowrap min-w-[500px]">
                             <thead class="bg-gray-50 sticky top-0 z-10"><tr><th class="p-2">품번</th><th class="p-2">품명</th><th class="p-2">기종</th><th class="p-2">현재고</th><th class="p-2">금액</th><th class="p-2">QR</th></tr></thead>
                             <tbody id="category-list-body"></tbody>
@@ -451,12 +475,13 @@
                 const isSelected = selectedCategories.has(r.category);
                 const ring = isSelected ? 'box-shadow: inset 0 0 0 3px white, inset 0 0 0 5px #1f7a3d; z-index:2;' : '';
                 const dim = (selectedCategories.size > 0 && !isSelected) ? 'opacity:0.45;' : '';
-                const showFull = r.w > 60 && r.h > 40;
-                let labelHtml = showFull 
-                    ? `<span class="text-[11px] font-bold truncate w-full px-1">${r.category}</span><span class="text-[9px]">${pct.toFixed(1)}%</span><span class="text-[9px]">${formatMillion(r.value)}</span>` 
-                    : (r.w > 30 && r.h > 20 ? `<span class="text-[9px] font-bold truncate px-0.5">${r.category}</span>` : '');
+                // 칸 크기에 따라 글자 표시 단계를 나눔
+                const tier = (r.w > 90 && r.h > 62) ? 'full' : ((r.w > 52 && r.h > 30) ? 'mid' : 'tiny');
+                // 커서를 올렸을 때 최소 가로 130 / 세로 84 는 확보되도록 배율 계산 (최대 2.6배)
+                const zoom = Math.min(2.6, Math.max(1.06, 130 / r.w, 84 / r.h));
+                const labelHtml = `<span class="lbl"><span class="c-name">${r.category}</span><span class="c-pct">${pct.toFixed(1)}%</span><span class="c-val">${formatMillion(r.value)}</span></span>`;
 
-                return `<div onclick="toggleCategory('${r.category.replace(/'/g, "\\'")}')" class="absolute flex flex-col items-center justify-center text-white text-center cursor-pointer transition overflow-hidden border border-white/40" style="left:${r.x}px; top:${r.y}px; width:${r.w}px; height:${r.h}px; background-color:${r.color}; ${ring} ${dim}">${labelHtml}</div>`;
+                return `<div onclick="toggleCategory('${r.category.replace(/'/g, "\\'")}')" class="tm-cell ${tier}" style="left:${r.x}px; top:${r.y}px; width:${r.w}px; height:${r.h}px; background-color:${r.color}; --s:${zoom.toFixed(2)}; ${ring} ${dim}">${labelHtml}</div>`;
             }).join('');
         }
 
