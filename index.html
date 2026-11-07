@@ -576,6 +576,8 @@
         function gotoBranch(code) {
             const u = new URL(location.href); u.searchParams.set('branch', code); u.searchParams.set('ro', '1'); location.href = u.toString();
         }
+        let chartQtyMode = false, firstListShown = false;
+        function fmtVal(v) { return chartQtyMode ? Math.round(v).toLocaleString() + '개' : formatMillion(v); }
         function renderDashboard(data) {
             renderBranchSummary(data);
             const totalValue = data.reduce((sum, d) => sum + (Number(d.stock) || 0) * (Number(d.price) || 0), 0);
@@ -593,6 +595,16 @@
                 categoryValueMap[cat] = (categoryValueMap[cat] || 0) + value;
                 categoryQtyMap[cat] = (categoryQtyMap[cat] || 0) + qty;
             });
+            // 단가가 하나도 없으면(SAP 엑셀만 올린 직후) 금액 대신 수량 기준으로 그림
+            chartQtyMode = Object.values(categoryValueMap).every(v => v === 0) && Object.values(categoryQtyMap).some(v => v > 0);
+            if (chartQtyMode) categoryValueMap = Object.assign({}, categoryQtyMap);
+            let note = document.getElementById('qtyModeNote');
+            if (!note) { note = document.createElement('p'); note.id = 'qtyModeNote'; note.className = 'text-[11px] text-orange-600 mb-2 hidden'; const ct = document.getElementById('chart-type'); ct.parentNode.insertBefore(note, ct); }
+            note.textContent = '단가가 입력되지 않아 금액 대신 수량 기준으로 표시합니다. 📁 데이터 > 기준정보 업로드로 단가·기종을 입력하면 금액 기준으로 바뀝니다.';
+            note.classList.toggle('hidden', !chartQtyMode);
+            if (chartQtyMode) document.getElementById('kpi-total-value').textContent = '단가 미입력 · ' + data.length.toLocaleString() + '품목';
+            // 처음 불러올 때는 기종을 고르지 않아도 전체 목록이 바로 보이게 함
+            if (!firstListShown && data.length) { showAllItems = true; firstListShown = true; }
 
             selectedCategories.forEach(cat => { if (!(cat in categoryValueMap)) selectedCategories.delete(cat); });
 
@@ -730,7 +742,7 @@
                 const zoom = Math.min(2.6, Math.max(1.06, 130 / r.w, 84 / r.h));
                 const click = r.isEtc ? 'toggleEtcGroup()' : `toggleCategory('${String(r.category).replace(/'/g, "\\'")}')`;
                 const hover = r.isEtc ? ` onmouseenter="showEtcPopover(this)"` : '';
-                const labelHtml = `<span class="lbl"><span class="c-name">${r.category}</span><span class="c-pct">${pct.toFixed(1)}%</span><span class="c-val">${formatMillion(r.value)}</span></span>`;
+                const labelHtml = `<span class="lbl"><span class="c-name">${r.category}</span><span class="c-pct">${pct.toFixed(1)}%</span><span class="c-val">${fmtVal(r.value)}</span></span>`;
 
                 return `<div onclick="${click}"${hover} class="tm-cell ${tier}${r.isEtc ? ' etc' : ''}" style="left:${r.x}px; top:${r.y}px; width:${r.w}px; height:${r.h}px; background-color:${r.color}; --s:${zoom.toFixed(2)}; ${ring} ${dim}">${labelHtml}</div>`;
             }).join('');
@@ -762,7 +774,7 @@
                     return `<div class="etc-row${on}" onclick="toggleCategory('${safe}')">
                                 <span class="dot"></span>
                                 <span class="nm">${cat}</span>
-                                <span class="vl">${formatMillion(val)}</span>
+                                <span class="vl">${fmtVal(val)}</span>
                                 <span class="pc">${pct.toFixed(1)}%</span>
                             </div>`;
                 }).join('');
