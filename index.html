@@ -96,7 +96,8 @@
                 <select id="branchPick" onchange="onBranchPick(this.value)" class="hidden text-xs md:text-sm text-gray-800 rounded-lg px-2 py-1"></select>
             </div>
             <div class="flex items-center gap-2 flex-shrink-0">
-                <button onclick="setStockUrl()" title="서버 주소 설정" class="text-xs md:text-sm bg-white/20 hover:bg-white/30 px-3 py-3 rounded-lg">⚙</button>
+                <button id="setUrlBtn" onclick="setStockUrl()" title="서버 주소 설정" class="text-xs md:text-sm bg-white/20 hover:bg-white/30 px-3 py-3 rounded-lg">⚙</button>
+                <button id="logoutBtn" onclick="doLogout()" class="hidden text-xs md:text-sm bg-white/20 hover:bg-white/30 px-3 py-3 rounded-lg">로그아웃</button>
                 <button onclick="openDataModal()" class="text-xs md:text-sm bg-white/20 hover:bg-white/30 px-3 py-3 rounded-lg">📁 데이터</button>
                 <button onclick="loadDashboard()" class="text-xs md:text-sm bg-white/20 hover:bg-white/30 px-4 py-3 rounded-lg">🔄 새로고침</button>
             </div>
@@ -411,6 +412,7 @@
             ctx.user = u || '미입력';
             return ctx.user;
         }
+        function typeCls(t) { return t === '입고' ? 'text-green-600' : t === '출고' ? 'text-red-600' : t === '조정' ? 'text-orange-600' : 'text-blue-600'; }
         function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
         function setStockUrl() {
             const v = prompt('저장품 서버(Apps Script 웹앱) 주소를 입력하세요.', WEB_APP_URL);
@@ -420,18 +422,86 @@
         }
         function onBranchPick(v) {
             if (v !== ctx.branch && !ctx.ro && !confirm(branchName(v === 'all' ? 'all' : v) + '(으)로 바꿀까요?\n입출고는 선택한 지사에 기록됩니다.')) { document.getElementById('branchPick').value = ctx.branch; return; }
-            ctx.branch = v; ctx.ro = (v === 'all') || QS.get('ro') === '1'; LS.set('stockBranch', v); initPage();
+            ctx.branch = v; ctx.ro = (v === 'all') || !!ctx.hqReadOnly || QS.get('ro') === '1'; LS.set('stockBranch', v); initPage();
         }
-        // 현장 휴대폰으로 직접 열 때: 처음 한 번은 반드시 지사를 직접 고르게 함 (전북으로 잘못 기록되는 것 방지)
-        function firstBranchGate() {
-            if (EMBEDDED || LS.get('stockBranch')) return;
+        /* ---------- 로그인 (통합 프로그램과 같은 로그인 서버 사용) ---------- */
+        const AUTH_URL = 'https://script.google.com/macros/s/AKfycby0jK0FuhmMxd43Mr9Sxxj1Yq89X1DEJ67Zxvr3efkmewmlI8QlwGAnIAGVCz8EuMZgZA/exec';
+        const SESSION_KEY = 'sebangStockSession';
+        let stockSession = null;   // { token, user: {name, empNo, role, branchCode, branchName, isMaster, isHQ, viewAll}, savedAt }
+        function authPost(body) { return fetch(AUTH_URL, { method: 'POST', body: JSON.stringify(body) }).then(r => r.json()); }
+        function loadSavedSession() {
+            try { const v = JSON.parse(LS.get(SESSION_KEY) || 'null'); return (v && v.token && v.user) ? v : null; } catch (e) { return null; }
+        }
+        function applySession(ss) {
+            stockSession = ss;
+            const u = ss.user;
+            ctx.user = u.name + (u.empNo ? '(' + u.empNo + ')' : '');
+            const roAll = !!u.isHQ;                       // 본사 소속(MASTER 제외)은 조회 전용
+            if (u.viewAll) { ctx.branch = 'all'; ctx.ro = true; ctx.canPick = true; ctx.hqReadOnly = roAll; }
+            else { ctx.branch = u.branchCode; ctx.ro = false; ctx.canPick = false; }
+            LS.set('stockBranch', ctx.branch);
+            const lo = document.getElementById('logoutBtn'); if (lo) lo.classList.remove('hidden');
+            const su = document.getElementById('setUrlBtn'); if (su) su.classList.toggle('hidden', !(ss.user && ss.user.isMaster));
+        }
+        function doLogout() {
+            LS.set(SESSION_KEY, ''); stockSession = null; ctx.user = '';
+            const lo = document.getElementById('logoutBtn'); if (lo) lo.classList.add('hidden');
+            masterData = []; renderDashboard([]);
+            showLoginGate('로그아웃 되었습니다.');
+        }
+        async function showLoginGate(msg) {
+            const old = document.getElementById('loginGate'); if (old) old.remove();
             const ov = document.createElement('div');
-            ov.id = 'branchGate';
-            ov.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.6);display:flex;align-items:center;justify-content:center;padding:16px;';
-            ov.innerHTML = '<div style="background:#fff;border-radius:16px;padding:20px;width:100%;max-width:360px;max-height:90vh;overflow:auto;"><p style="font-weight:800;font-size:16px;margin-bottom:4px;">근무 지사를 선택하세요</p><p style="font-size:12px;color:#64748b;margin-bottom:12px;">한 번 선택하면 이 휴대폰에 기억됩니다. 입출고는 선택한 지사에 기록됩니다.</p><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
-                + BRANCH_LIST.map(b => '<button data-c="' + b.code + '" style="padding:12px;border:1px solid #cbd5e1;border-radius:10px;font-weight:700;background:#f8fafc;">' + esc(b.name) + '</button>').join('') + '</div></div>';
-            ov.addEventListener('click', e => { const c = e.target.closest('button'); if (!c) return; ctx.branch = c.dataset.c; LS.set('stockBranch', ctx.branch); ov.remove(); initPage(); });
+            ov.id = 'loginGate';
+            ov.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#f9fbf8;overflow:auto;';
+            ov.innerHTML = '<div style="max-width:380px;margin:0 auto;padding:48px 20px;">'
+                + '<h2 style="font-size:20px;font-weight:800;color:#1f7a3d;">세방 저장품 관리</h2>'
+                + '<p style="font-size:12px;color:#888;margin:4px 0 20px;">통합 정비 프로그램과 같은 사번·비밀번호로 로그인하세요.</p>'
+                + '<select id="lgBranch" style="width:100%;padding:13px 12px;font-size:16px;border:1px solid #d1e7d6;border-radius:10px;background:#fff;margin-bottom:12px;"></select>'
+                + '<input id="lgEmp" inputmode="numeric" autocomplete="username" placeholder="사번" style="width:100%;padding:13px 12px;font-size:16px;border:1px solid #d1e7d6;border-radius:10px;margin-bottom:12px;">'
+                + '<input id="lgPw" type="password" autocomplete="current-password" placeholder="비밀번호" style="width:100%;padding:13px 12px;font-size:16px;border:1px solid #d1e7d6;border-radius:10px;margin-bottom:12px;">'
+                + '<div id="lgMsg" style="font-size:12px;color:#dc2626;min-height:18px;margin-bottom:8px;"></div>'
+                + '<button id="lgBtn" style="width:100%;padding:14px;font-size:16px;font-weight:800;color:#fff;background:#1f7a3d;border:0;border-radius:10px;">로그인</button>'
+                + '<p style="font-size:11px;color:#94a3b8;margin-top:14px;line-height:1.6;">입출고와 엑셀 업로드 이력에 로그인한 사람의 이름이 남습니다.<br>비밀번호 변경·초기화는 통합 정비 프로그램에서 하세요.</p></div>';
             document.body.appendChild(ov);
+            document.getElementById('lgMsg').textContent = msg || '';
+            const sel = document.getElementById('lgBranch');
+            let list = BRANCH_LIST.map(b => [b.code, b.name]);
+            sel.innerHTML = list.map(b => '<option value="' + b[0] + '">' + esc(b[1]) + '</option>').join('');
+            try {   // 지사 목록은 로그인 서버 기준으로 갱신 (MASTER 포함)
+                const r = await authPost({ action: 'branches' });
+                if (r && r.ok && r.branches && r.branches.length) { list = r.branches.map(b => [b.code, b.name]); sel.innerHTML = list.map(b => '<option value="' + b[0] + '">' + esc(b[1]) + '</option>').join(''); }
+            } catch (e) {}
+            const last = LS.get('stockLoginBranch'); if (last && list.some(b => b[0] === last)) sel.value = last;
+            const go = async () => {
+                const emp = document.getElementById('lgEmp').value.trim(), pw = document.getElementById('lgPw').value, btn = document.getElementById('lgBtn'), m = document.getElementById('lgMsg');
+                if (!emp || !pw) { m.textContent = '사번과 비밀번호를 입력하세요.'; return; }
+                btn.disabled = true; btn.textContent = '확인 중...'; m.textContent = '';
+                try {
+                    const r = await authPost({ action: 'login', branch: sel.value, empNo: emp, password: pw });
+                    if (!r || !r.ok) throw new Error((r && r.message) || '로그인 실패');
+                    LS.set('stockLoginBranch', sel.value);
+                    const ss = { token: r.token, user: r.user, savedAt: Date.now() };
+                    LS.set(SESSION_KEY, JSON.stringify(ss));
+                    ov.remove(); applySession(ss); initPage();
+                    if (r.initialPw) showToast('초기 비밀번호입니다. 통합 정비 프로그램에서 변경하세요.', 'error');
+                } catch (e) { m.textContent = e.message || String(e); btn.disabled = false; btn.textContent = '로그인'; }
+            };
+            document.getElementById('lgBtn').onclick = go;
+            document.getElementById('lgPw').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+        }
+        // 통합 프로그램 안(iframe)에서는 이미 로그인된 정보를 받으므로 이 로그인 창을 건너뜀. 직접 열었을 때만 로그인 필요.
+        // 반환값 true: 로그인 창이 떠 있음(초기화는 로그인 후에 진행)
+        function loginGate() {
+            if (EMBEDDED) return false;
+            const saved = loadSavedSession();
+            if (saved) {
+                applySession(saved);
+                authPost({ action: 'me', token: saved.token }).then(r => { if (r && r.ok === false) { LS.set(SESSION_KEY, ''); showLoginGate('로그인이 만료되었습니다. 다시 로그인하세요.'); } }).catch(() => {});
+                return false;
+            }
+            showLoginGate('');
+            return true;
         }
 
 
@@ -980,16 +1050,17 @@
 
             newItems.forEach(h => {
                 const row = document.createElement('div');
-                row.className = 'flex justify-between items-center py-3 text-xs';
+                row.className = 'flex flex-wrap justify-between items-center py-3 text-xs';
                 row.innerHTML = `
                     <div class="min-w-0 pr-2">
                         <p class="font-bold truncate">${h.partId} <span class="text-gray-400 font-normal">${h.partName || ''}</span></p>
                         <p class="text-gray-400 mt-0.5">${h.date ? new Date(h.date).toLocaleString('ko-KR') : '-'}</p>
                     </div>
                     <div class="text-right flex-shrink-0">
-                        <p class="font-bold ${h.type === '입고' ? 'text-green-600' : 'text-red-600'}">${h.type} ${h.qty}</p>
+                        <p class="font-bold ${typeCls(h.type)}">${esc(h.type)}${h.type === '기준정보수정' ? '' : ' ' + h.qty}</p>
                         <p class="text-gray-400 mt-0.5">재고 ${h.closingStock ?? '-'}</p>
                     </div>`;
+                row.insertAdjacentHTML('beforeend', `<div class="basis-full text-[11px] text-gray-500 mt-1">${h.user ? '👤 ' + esc(h.user) : ''}${h.note ? ' · ' + esc(h.note) : ''}</div>`);
                 listEl.appendChild(row);
             });
 
@@ -1068,7 +1139,7 @@
                 const history = await apiGet({ action: 'history', partId });
                 const el = document.getElementById('itemHistoryTable');
                 if (!Array.isArray(history) || history.length === 0) el.innerHTML = '<p>이력 없음</p>';
-                else el.innerHTML = `<table class="w-full text-left whitespace-nowrap"><thead class="bg-gray-50"><tr><th class="p-2">일시</th><th class="p-2">구분</th><th class="p-2">수량</th><th class="p-2">재고</th></tr></thead><tbody>${history.slice(0,5).map(h => `<tr class="border-b border-gray-100"><td class="p-2">${h.date?new Date(h.date).toLocaleDateString('ko-KR'):'-'}</td><td class="p-2 ${h.type==='입고'?'text-green-600':'text-red-600'} font-bold">${h.type}</td><td class="p-2">${h.qty}</td><td class="p-2">${h.closingStock}</td></tr>`).join('')}</tbody></table>`;
+                else el.innerHTML = `<table class="w-full text-left whitespace-nowrap"><thead class="bg-gray-50"><tr><th class="p-2">일시</th><th class="p-2">구분</th><th class="p-2">수량</th><th class="p-2">재고</th></tr></thead><tbody>${history.slice(0,5).map(h => `<tr class="border-b border-gray-100"><td class="p-2">${h.date?new Date(h.date).toLocaleDateString('ko-KR'):'-'}</td><td class="p-2 ${typeCls(h.type)} font-bold">${esc(h.type)}</td><td class="p-2">${h.qty}</td><td class="p-2">${h.closingStock}</td></tr>`).join('')}</tbody></table>`;
             } catch (err) { document.getElementById('itemHistoryTable').textContent = '로드 실패'; }
         }
         function closeItemDetailModal() { document.getElementById('itemDetailModal').classList.add('hidden'); }
@@ -1227,10 +1298,10 @@
             if (hint) hint.textContent = ro ? '조회 전용 화면입니다.' : '안전재고·기종·위치·단가·리드타임은 표에서 바로 고칠 수 있습니다. 현재고는 SAP 재고 업로드 또는 입출고로만 바뀝니다.';
         }
         function initPage() {
-            firstBranchGate();
+            if (!stockSession && !EMBEDDED) { if (document.getElementById('loginGate')) return; if (loginGate()) return; }
             document.getElementById('branchBadge').textContent = branchName(ctx.branch) + (ctx.ro ? ' · 조회' : '');
             const pick = document.getElementById('branchPick');
-            if (!EMBEDDED) {
+            if (!EMBEDDED && ctx.canPick) {
                 pick.classList.remove('hidden');
                 pick.innerHTML = BRANCH_LIST.map(b => `<option value="${b.code}">${esc(b.name)}</option>`).join('') + '<option value="all">전 지사 합계</option>';
                 pick.value = ctx.branch;
