@@ -459,9 +459,9 @@
                 + '<p style="font-size:12px;color:#888;margin:4px 0 20px;">통합 정비 프로그램과 같은 사번·비밀번호로 로그인하세요.</p>'
                 + '<select id="lgBranch" style="width:100%;padding:13px 12px;font-size:16px;border:1px solid #d1e7d6;border-radius:10px;background:#fff;margin-bottom:12px;"></select>'
                 + '<input id="lgEmp" inputmode="numeric" autocomplete="username" placeholder="사번" style="width:100%;padding:13px 12px;font-size:16px;border:1px solid #d1e7d6;border-radius:10px;margin-bottom:12px;">'
-                + '<div style="position:relative;margin-bottom:12px;"><input id="lgPw" type="password" autocomplete="current-password" placeholder="비밀번호" style="width:100%;padding:13px 64px 13px 12px;font-size:16px;letter-spacing:2px;border:1px solid #d1e7d6;border-radius:10px;">'
+                + '<div style="position:relative;margin-bottom:12px;"><input id="lgPw" type="password" autocomplete="current-password" placeholder="비밀번호" style="width:100%;padding:13px 64px 13px 12px;font-size:16px;letter-spacing:2px;font-family:system-ui,-apple-system,sans-serif;border:1px solid #d1e7d6;border-radius:10px;">'
                 + '<button type="button" id="lgPwEye" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);padding:8px 10px;font-size:13px;font-weight:700;color:#1f7a3d;background:transparent;border:0;">보기</button></div>'
-                + '<div id="lgPwLen" style="font-size:11px;color:#94a3b8;margin:-6px 0 8px 2px;min-height:14px;"></div>'
+                + '<div id="lgPwLen" style="font-size:14px;color:#475569;margin:-6px 0 8px 2px;min-height:20px;letter-spacing:3px;font-family:system-ui,sans-serif;"></div>'
                 + '<div id="lgMsg" style="font-size:12px;color:#dc2626;min-height:18px;margin-bottom:8px;"></div>'
                 + '<button id="lgBtn" style="width:100%;padding:14px;font-size:16px;font-weight:800;color:#fff;background:#1f7a3d;border:0;border-radius:10px;">로그인</button>'
                 + '<p style="font-size:11px;color:#94a3b8;margin-top:14px;line-height:1.6;">입출고와 엑셀 업로드 이력에 로그인한 사람의 이름이 남습니다.<br>비밀번호 변경·초기화는 통합 정비 프로그램에서 하세요.</p></div>';
@@ -490,7 +490,7 @@
                 } catch (e) { m.textContent = e.message || String(e); btn.disabled = false; btn.textContent = '로그인'; }
             };
             const pw = document.getElementById('lgPw'), eye = document.getElementById('lgPwEye'), len = document.getElementById('lgPwLen');
-            pw.addEventListener('input', () => { len.textContent = pw.value ? pw.value.length + '자 입력됨' : ''; });
+            pw.addEventListener('input', () => { const n = pw.value.length; len.textContent = n ? '●'.repeat(n) + '  (' + n + '자)' : ''; });
             eye.onclick = () => { const show = pw.type === 'password'; pw.type = show ? 'text' : 'password'; eye.textContent = show ? '숨기기' : '보기'; };
             document.getElementById('lgBtn').onclick = go;
             document.getElementById('lgPw').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
