@@ -96,8 +96,7 @@
                 <select id="branchPick" onchange="onBranchPick(this.value)" class="hidden text-xs md:text-sm text-gray-800 rounded-lg px-2 py-1"></select>
             </div>
             <div class="flex items-center gap-2 flex-shrink-0">
-                <button id="setUrlBtn" onclick="setStockUrl()" title="서버 주소 설정" class="text-xs md:text-sm bg-white/20 hover:bg-white/30 px-3 py-3 rounded-lg">⚙</button>
-                <button id="logoutBtn" onclick="doLogout()" class="hidden text-xs md:text-sm bg-white/20 hover:bg-white/30 px-3 py-3 rounded-lg">로그아웃</button>
+                <button onclick="setStockUrl()" title="서버 주소 설정" class="text-xs md:text-sm bg-white/20 hover:bg-white/30 px-3 py-3 rounded-lg">⚙</button>
                 <button onclick="openDataModal()" class="text-xs md:text-sm bg-white/20 hover:bg-white/30 px-3 py-3 rounded-lg">📁 데이터</button>
                 <button onclick="loadDashboard()" class="text-xs md:text-sm bg-white/20 hover:bg-white/30 px-4 py-3 rounded-lg">🔄 새로고침</button>
             </div>
@@ -277,7 +276,7 @@
                     </div>
                     <div class="border border-gray-200 bg-gray-50 rounded-xl p-4 mb-3">
                         <p class="text-sm font-bold text-gray-700">② 기준정보·안전재고 업로드</p>
-                        <p class="text-[11px] text-gray-600 mt-1 mb-3">품번 기준으로 품명·단위·거래처·단가·안전재고·리드타임·기종·장비번호·위치를 한꺼번에 등록/수정합니다. 빈칸은 기존 값이 유지됩니다.</p>
+                        <p class="text-[11px] text-gray-600 mt-1 mb-3">품번 기준으로 품명·단위·현재고(수량)·거래처·단가·안전재고·리드타임·기종·장비번호·위치를 한꺼번에 등록/수정합니다. 빈칸은 기존 값이 유지됩니다.</p>
                         <input type="file" id="masterFile" accept=".xlsx,.xls" class="text-xs max-w-full mb-2" onchange="onMasterFile(this.files[0]); this.value='';">
                     </div>
                 </div>
@@ -376,7 +375,7 @@
             set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
         };
         // 저장품 서버(Apps Script 웹앱) 주소: 배포 후 아래 따옴표 안에 붙여 넣으면 모든 사용자에게 적용됩니다.
-        const DEFAULT_STOCK_GAS_URL = 'https://script.google.com/macros/s/AKfycbxU7ZA41jrFuADm5Q3eXlsGjFKguiY8DJYE_pPwwQWCsq0YMdEO2wNkjLHN0OJ3pdFG/exec';
+        const DEFAULT_STOCK_GAS_URL = '';
         let WEB_APP_URL = (LS.get('stockGasUrl') || DEFAULT_STOCK_GAS_URL || '').trim();
         const EMBEDDED = QS.has('branch');
         const ctx = {
@@ -412,7 +411,6 @@
             ctx.user = u || '미입력';
             return ctx.user;
         }
-        function typeCls(t) { return t === '입고' ? 'text-green-600' : t === '출고' ? 'text-red-600' : t === '조정' ? 'text-orange-600' : 'text-blue-600'; }
         function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
         function setStockUrl() {
             const v = prompt('저장품 서버(Apps Script 웹앱) 주소를 입력하세요.', WEB_APP_URL);
@@ -422,91 +420,18 @@
         }
         function onBranchPick(v) {
             if (v !== ctx.branch && !ctx.ro && !confirm(branchName(v === 'all' ? 'all' : v) + '(으)로 바꿀까요?\n입출고는 선택한 지사에 기록됩니다.')) { document.getElementById('branchPick').value = ctx.branch; return; }
-            ctx.branch = v; ctx.ro = (v === 'all') || !!ctx.hqReadOnly || QS.get('ro') === '1'; LS.set('stockBranch', v); initPage();
+            ctx.branch = v; ctx.ro = (v === 'all') || QS.get('ro') === '1'; LS.set('stockBranch', v); initPage();
         }
-        /* ---------- 로그인 (통합 프로그램과 같은 로그인 서버 사용) ---------- */
-        const AUTH_URL = 'https://script.google.com/macros/s/AKfycby0jK0FuhmMxd43Mr9Sxxj1Yq89X1DEJ67Zxvr3efkmewmlI8QlwGAnIAGVCz8EuMZgZA/exec';
-        const SESSION_KEY = 'sebangStockSession';
-        let stockSession = null;   // { token, user: {name, empNo, role, branchCode, branchName, isMaster, isHQ, viewAll}, savedAt }
-        function authPost(body) { return fetch(AUTH_URL, { method: 'POST', body: JSON.stringify(body) }).then(r => r.json()); }
-        function loadSavedSession() {
-            try { const v = JSON.parse(LS.get(SESSION_KEY) || 'null'); return (v && v.token && v.user) ? v : null; } catch (e) { return null; }
-        }
-        function applySession(ss) {
-            stockSession = ss;
-            const u = ss.user;
-            ctx.user = u.name + (u.empNo ? '(' + u.empNo + ')' : '');
-            const roAll = !!u.isHQ;                       // 본사 소속(MASTER 제외)은 조회 전용
-            if (u.viewAll) { ctx.branch = 'all'; ctx.ro = true; ctx.canPick = true; ctx.hqReadOnly = roAll; }
-            else { ctx.branch = u.branchCode; ctx.ro = false; ctx.canPick = false; }
-            LS.set('stockBranch', ctx.branch);
-            const lo = document.getElementById('logoutBtn'); if (lo) lo.classList.remove('hidden');
-            const su = document.getElementById('setUrlBtn'); if (su) su.classList.toggle('hidden', !(ss.user && ss.user.isMaster));
-        }
-        function doLogout() {
-            LS.set(SESSION_KEY, ''); stockSession = null; ctx.user = '';
-            const lo = document.getElementById('logoutBtn'); if (lo) lo.classList.add('hidden');
-            masterData = []; renderDashboard([]);
-            showLoginGate('로그아웃 되었습니다.');
-        }
-        async function showLoginGate(msg) {
-            const old = document.getElementById('loginGate'); if (old) old.remove();
+        // 현장 휴대폰으로 직접 열 때: 처음 한 번은 반드시 지사를 직접 고르게 함 (전북으로 잘못 기록되는 것 방지)
+        function firstBranchGate() {
+            if (EMBEDDED || LS.get('stockBranch')) return;
             const ov = document.createElement('div');
-            ov.id = 'loginGate';
-            ov.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#f9fbf8;overflow:auto;';
-            ov.innerHTML = '<div style="max-width:380px;margin:0 auto;padding:48px 20px;">'
-                + '<h2 style="font-size:20px;font-weight:800;color:#1f7a3d;">세방 저장품 관리</h2>'
-                + '<p style="font-size:12px;color:#888;margin:4px 0 20px;">통합 정비 프로그램과 같은 사번·비밀번호로 로그인하세요.</p>'
-                + '<select id="lgBranch" style="width:100%;padding:13px 12px;font-size:16px;border:1px solid #d1e7d6;border-radius:10px;background:#fff;margin-bottom:12px;"></select>'
-                + '<input id="lgEmp" inputmode="numeric" autocomplete="username" placeholder="사번" style="width:100%;padding:13px 12px;font-size:16px;border:1px solid #d1e7d6;border-radius:10px;margin-bottom:12px;">'
-                + '<div style="position:relative;margin-bottom:12px;"><input id="lgPw" type="password" autocomplete="current-password" placeholder="비밀번호" style="width:100%;padding:13px 64px 13px 12px;font-size:16px;letter-spacing:2px;font-family:system-ui,-apple-system,sans-serif;border:1px solid #d1e7d6;border-radius:10px;">'
-                + '<button type="button" id="lgPwEye" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);padding:8px 10px;font-size:13px;font-weight:700;color:#1f7a3d;background:transparent;border:0;">보기</button></div>'
-                + '<div id="lgPwLen" style="font-size:14px;color:#475569;margin:-6px 0 8px 2px;min-height:20px;letter-spacing:3px;font-family:system-ui,sans-serif;"></div>'
-                + '<div id="lgMsg" style="font-size:12px;color:#dc2626;min-height:18px;margin-bottom:8px;"></div>'
-                + '<button id="lgBtn" style="width:100%;padding:14px;font-size:16px;font-weight:800;color:#fff;background:#1f7a3d;border:0;border-radius:10px;">로그인</button>'
-                + '<p style="font-size:11px;color:#94a3b8;margin-top:14px;line-height:1.6;">입출고와 엑셀 업로드 이력에 로그인한 사람의 이름이 남습니다.<br>비밀번호 변경·초기화는 통합 정비 프로그램에서 하세요.</p></div>';
+            ov.id = 'branchGate';
+            ov.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.6);display:flex;align-items:center;justify-content:center;padding:16px;';
+            ov.innerHTML = '<div style="background:#fff;border-radius:16px;padding:20px;width:100%;max-width:360px;max-height:90vh;overflow:auto;"><p style="font-weight:800;font-size:16px;margin-bottom:4px;">근무 지사를 선택하세요</p><p style="font-size:12px;color:#64748b;margin-bottom:12px;">한 번 선택하면 이 휴대폰에 기억됩니다. 입출고는 선택한 지사에 기록됩니다.</p><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
+                + BRANCH_LIST.map(b => '<button data-c="' + b.code + '" style="padding:12px;border:1px solid #cbd5e1;border-radius:10px;font-weight:700;background:#f8fafc;">' + esc(b.name) + '</button>').join('') + '</div></div>';
+            ov.addEventListener('click', e => { const c = e.target.closest('button'); if (!c) return; ctx.branch = c.dataset.c; LS.set('stockBranch', ctx.branch); ov.remove(); initPage(); });
             document.body.appendChild(ov);
-            document.getElementById('lgMsg').textContent = msg || '';
-            const sel = document.getElementById('lgBranch');
-            let list = BRANCH_LIST.map(b => [b.code, b.name]);
-            sel.innerHTML = list.map(b => '<option value="' + b[0] + '">' + esc(b[1]) + '</option>').join('');
-            try {   // 지사 목록은 로그인 서버 기준으로 갱신 (MASTER 포함)
-                const r = await authPost({ action: 'branches' });
-                if (r && r.ok && r.branches && r.branches.length) { list = r.branches.map(b => [b.code, b.name]); sel.innerHTML = list.map(b => '<option value="' + b[0] + '">' + esc(b[1]) + '</option>').join(''); }
-            } catch (e) {}
-            const last = LS.get('stockLoginBranch'); if (last && list.some(b => b[0] === last)) sel.value = last;
-            const go = async () => {
-                const emp = document.getElementById('lgEmp').value.trim(), pw = document.getElementById('lgPw').value, btn = document.getElementById('lgBtn'), m = document.getElementById('lgMsg');
-                if (!emp || !pw) { m.textContent = '사번과 비밀번호를 입력하세요.'; return; }
-                btn.disabled = true; btn.textContent = '확인 중...'; m.textContent = '';
-                try {
-                    const r = await authPost({ action: 'login', branch: sel.value, empNo: emp, password: pw });
-                    if (!r || !r.ok) throw new Error((r && r.message) || '로그인 실패');
-                    LS.set('stockLoginBranch', sel.value);
-                    const ss = { token: r.token, user: r.user, savedAt: Date.now() };
-                    LS.set(SESSION_KEY, JSON.stringify(ss));
-                    ov.remove(); applySession(ss); initPage();
-                    if (r.initialPw) showToast('초기 비밀번호입니다. 통합 정비 프로그램에서 변경하세요.', 'error');
-                } catch (e) { m.textContent = e.message || String(e); btn.disabled = false; btn.textContent = '로그인'; }
-            };
-            const pw = document.getElementById('lgPw'), eye = document.getElementById('lgPwEye'), len = document.getElementById('lgPwLen');
-            pw.addEventListener('input', () => { const n = pw.value.length; len.textContent = n ? '●'.repeat(n) + '  (' + n + '자)' : ''; });
-            eye.onclick = () => { const show = pw.type === 'password'; pw.type = show ? 'text' : 'password'; eye.textContent = show ? '숨기기' : '보기'; };
-            document.getElementById('lgBtn').onclick = go;
-            document.getElementById('lgPw').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
-        }
-        // 통합 프로그램 안(iframe)에서는 이미 로그인된 정보를 받으므로 이 로그인 창을 건너뜀. 직접 열었을 때만 로그인 필요.
-        // 반환값 true: 로그인 창이 떠 있음(초기화는 로그인 후에 진행)
-        function loginGate() {
-            if (EMBEDDED) return false;
-            const saved = loadSavedSession();
-            if (saved) {
-                applySession(saved);
-                authPost({ action: 'me', token: saved.token }).then(r => { if (r && r.ok === false) { LS.set(SESSION_KEY, ''); showLoginGate('로그인이 만료되었습니다. 다시 로그인하세요.'); } }).catch(() => {});
-                return false;
-            }
-            showLoginGate('');
-            return true;
         }
 
 
@@ -651,8 +576,6 @@
         function gotoBranch(code) {
             const u = new URL(location.href); u.searchParams.set('branch', code); u.searchParams.set('ro', '1'); location.href = u.toString();
         }
-        let chartQtyMode = false, firstListShown = false;
-        function fmtVal(v) { return chartQtyMode ? Math.round(v).toLocaleString() + '개' : formatMillion(v); }
         function renderDashboard(data) {
             renderBranchSummary(data);
             const totalValue = data.reduce((sum, d) => sum + (Number(d.stock) || 0) * (Number(d.price) || 0), 0);
@@ -670,16 +593,6 @@
                 categoryValueMap[cat] = (categoryValueMap[cat] || 0) + value;
                 categoryQtyMap[cat] = (categoryQtyMap[cat] || 0) + qty;
             });
-            // 단가가 하나도 없으면(SAP 엑셀만 올린 직후) 금액 대신 수량 기준으로 그림
-            chartQtyMode = Object.values(categoryValueMap).every(v => v === 0) && Object.values(categoryQtyMap).some(v => v > 0);
-            if (chartQtyMode) categoryValueMap = Object.assign({}, categoryQtyMap);
-            let note = document.getElementById('qtyModeNote');
-            if (!note) { note = document.createElement('p'); note.id = 'qtyModeNote'; note.className = 'text-[11px] text-orange-600 mb-2 hidden'; const ct = document.getElementById('chart-type'); ct.parentNode.insertBefore(note, ct); }
-            note.textContent = '단가가 입력되지 않아 금액 대신 수량 기준으로 표시합니다. 📁 데이터 > 기준정보 업로드로 단가·기종을 입력하면 금액 기준으로 바뀝니다.';
-            note.classList.toggle('hidden', !chartQtyMode);
-            if (chartQtyMode) document.getElementById('kpi-total-value').textContent = '단가 미입력 · ' + data.length.toLocaleString() + '품목';
-            // 처음 불러올 때는 기종을 고르지 않아도 전체 목록이 바로 보이게 함
-            if (!firstListShown && data.length) { showAllItems = true; firstListShown = true; }
 
             selectedCategories.forEach(cat => { if (!(cat in categoryValueMap)) selectedCategories.delete(cat); });
 
@@ -817,7 +730,7 @@
                 const zoom = Math.min(2.6, Math.max(1.06, 130 / r.w, 84 / r.h));
                 const click = r.isEtc ? 'toggleEtcGroup()' : `toggleCategory('${String(r.category).replace(/'/g, "\\'")}')`;
                 const hover = r.isEtc ? ` onmouseenter="showEtcPopover(this)"` : '';
-                const labelHtml = `<span class="lbl"><span class="c-name">${r.category}</span><span class="c-pct">${pct.toFixed(1)}%</span><span class="c-val">${fmtVal(r.value)}</span></span>`;
+                const labelHtml = `<span class="lbl"><span class="c-name">${r.category}</span><span class="c-pct">${pct.toFixed(1)}%</span><span class="c-val">${formatMillion(r.value)}</span></span>`;
 
                 return `<div onclick="${click}"${hover} class="tm-cell ${tier}${r.isEtc ? ' etc' : ''}" style="left:${r.x}px; top:${r.y}px; width:${r.w}px; height:${r.h}px; background-color:${r.color}; --s:${zoom.toFixed(2)}; ${ring} ${dim}">${labelHtml}</div>`;
             }).join('');
@@ -849,7 +762,7 @@
                     return `<div class="etc-row${on}" onclick="toggleCategory('${safe}')">
                                 <span class="dot"></span>
                                 <span class="nm">${cat}</span>
-                                <span class="vl">${fmtVal(val)}</span>
+                                <span class="vl">${formatMillion(val)}</span>
                                 <span class="pc">${pct.toFixed(1)}%</span>
                             </div>`;
                 }).join('');
@@ -1055,17 +968,16 @@
 
             newItems.forEach(h => {
                 const row = document.createElement('div');
-                row.className = 'flex flex-wrap justify-between items-center py-3 text-xs';
+                row.className = 'flex justify-between items-center py-3 text-xs';
                 row.innerHTML = `
                     <div class="min-w-0 pr-2">
                         <p class="font-bold truncate">${h.partId} <span class="text-gray-400 font-normal">${h.partName || ''}</span></p>
                         <p class="text-gray-400 mt-0.5">${h.date ? new Date(h.date).toLocaleString('ko-KR') : '-'}</p>
                     </div>
                     <div class="text-right flex-shrink-0">
-                        <p class="font-bold ${typeCls(h.type)}">${esc(h.type)}${h.type === '기준정보수정' ? '' : ' ' + h.qty}</p>
+                        <p class="font-bold ${h.type === '입고' ? 'text-green-600' : 'text-red-600'}">${h.type} ${h.qty}</p>
                         <p class="text-gray-400 mt-0.5">재고 ${h.closingStock ?? '-'}</p>
                     </div>`;
-                row.insertAdjacentHTML('beforeend', `<div class="basis-full text-[11px] text-gray-500 mt-1">${h.user ? '👤 ' + esc(h.user) : ''}${h.note ? ' · ' + esc(h.note) : ''}</div>`);
                 listEl.appendChild(row);
             });
 
@@ -1144,7 +1056,7 @@
                 const history = await apiGet({ action: 'history', partId });
                 const el = document.getElementById('itemHistoryTable');
                 if (!Array.isArray(history) || history.length === 0) el.innerHTML = '<p>이력 없음</p>';
-                else el.innerHTML = `<table class="w-full text-left whitespace-nowrap"><thead class="bg-gray-50"><tr><th class="p-2">일시</th><th class="p-2">구분</th><th class="p-2">수량</th><th class="p-2">재고</th></tr></thead><tbody>${history.slice(0,5).map(h => `<tr class="border-b border-gray-100"><td class="p-2">${h.date?new Date(h.date).toLocaleDateString('ko-KR'):'-'}</td><td class="p-2 ${typeCls(h.type)} font-bold">${esc(h.type)}</td><td class="p-2">${h.qty}</td><td class="p-2">${h.closingStock}</td></tr>`).join('')}</tbody></table>`;
+                else el.innerHTML = `<table class="w-full text-left whitespace-nowrap"><thead class="bg-gray-50"><tr><th class="p-2">일시</th><th class="p-2">구분</th><th class="p-2">수량</th><th class="p-2">재고</th></tr></thead><tbody>${history.slice(0,5).map(h => `<tr class="border-b border-gray-100"><td class="p-2">${h.date?new Date(h.date).toLocaleDateString('ko-KR'):'-'}</td><td class="p-2 ${h.type==='입고'?'text-green-600':'text-red-600'} font-bold">${h.type}</td><td class="p-2">${h.qty}</td><td class="p-2">${h.closingStock}</td></tr>`).join('')}</tbody></table>`;
             } catch (err) { document.getElementById('itemHistoryTable').textContent = '로드 실패'; }
         }
         function closeItemDetailModal() { document.getElementById('itemDetailModal').classList.add('hidden'); }
@@ -1303,10 +1215,10 @@
             if (hint) hint.textContent = ro ? '조회 전용 화면입니다.' : '안전재고·기종·위치·단가·리드타임은 표에서 바로 고칠 수 있습니다. 현재고는 SAP 재고 업로드 또는 입출고로만 바뀝니다.';
         }
         function initPage() {
-            if (!stockSession && !EMBEDDED) { if (document.getElementById('loginGate')) return; if (loginGate()) return; }
+            firstBranchGate();
             document.getElementById('branchBadge').textContent = branchName(ctx.branch) + (ctx.ro ? ' · 조회' : '');
             const pick = document.getElementById('branchPick');
-            if (!EMBEDDED && ctx.canPick) {
+            if (!EMBEDDED) {
                 pick.classList.remove('hidden');
                 pick.innerHTML = BRANCH_LIST.map(b => `<option value="${b.code}">${esc(b.name)}</option>`).join('') + '<option value="all">전 지사 합계</option>';
                 pick.value = ctx.branch;
@@ -1501,13 +1413,13 @@
         }
 
         /* ---------- 기준정보·안전재고 업로드 / 내려받기 ---------- */
-        const MASTER_COLS = [['partId', '품번'], ['partName', '품명'], ['kind', '구분'], ['unit', '단위'], ['vendor', '거래처'], ['price', '단가'], ['safetyStock', '안전재고'], ['leadTime', '리드타임'], ['category', '기종'], ['equipmentNo', '장비번호'], ['location', '위치'], ['note', '비고']];
+        const MASTER_COLS = [['partId', '품번'], ['partName', '품명'], ['kind', '구분'], ['unit', '단위'], ['stock', '현재고'], ['vendor', '거래처'], ['price', '단가'], ['safetyStock', '안전재고'], ['leadTime', '리드타임'], ['category', '기종'], ['equipmentNo', '장비번호'], ['location', '위치'], ['note', '비고']];
         let masterPending = null;
         async function onMasterFile(file) {
             if (!file) return; if (needUrl()) return;
             try {
                 const wb = await readWorkbook(file);
-                const al = {}; MASTER_COLS.forEach(([k, h]) => al[k] = [h]); al.leadTime.push('리드타임(일)'); al.location.push('렉위치', '렉번호'); al.category.push('장비구분');
+                const al = {}; MASTER_COLS.forEach(([k, h]) => al[k] = [h]); al.leadTime.push('리드타임(일)'); al.stock.push('수량', '현재수량', '재고수량'); al.location.push('렉위치', '렉번호'); al.category.push('장비구분');
                 const t = findTable(wb, ['partId'], al);
                 if (!t) throw new Error('"품번" 머리글이 있는 시트를 찾지 못했습니다. 기준정보 입력 양식을 사용하세요.');
                 const items = [], bad = [], cur = new Set(masterData.map(d => d.partId)); let nNew = 0, nUp = 0;
@@ -1516,7 +1428,7 @@
                     const it = { partId: pid }; let err = '';
                     MASTER_COLS.forEach(([k]) => {
                         if (k === 'partId' || !(k in r)) return;
-                        if (['price', 'safetyStock', 'leadTime'].includes(k)) { const n = cellNum(r[k]); if (n === '') return; if (isNaN(n) || n < 0) { err = `${k === 'price' ? '단가' : k === 'safetyStock' ? '안전재고' : '리드타임'} 숫자 오류`; return; } it[k] = n; }
+                        if (['price', 'safetyStock', 'leadTime', 'stock'].includes(k)) { const n = cellNum(r[k]); if (n === '') return; if (isNaN(n) || n < 0) { err = `${k === 'price' ? '단가' : k === 'safetyStock' ? '안전재고' : k === 'stock' ? '현재고' : '리드타임'} 숫자 오류`; return; } it[k] = n; }
                         else if (k === 'kind') { const s = cellStr(r[k]); if (s === '') return; if (/부외/.test(s)) it.kind = '부외자산'; else if (/저장/.test(s)) it.kind = '저장품'; else err = '구분은 저장품/부외자산 중 하나'; }
                         else { const s = cellStr(r[k]); if (s !== '') it[k] = s; }
                     });
@@ -1533,8 +1445,8 @@
                         <div class="p-2 rounded-xl bg-green-50"><p class="text-[10px] text-gray-500">신규</p><p class="text-lg font-bold text-[#1f7a3d]">${nNew}</p></div>
                     </div>
                     ${bad.length ? `<p class="text-xs text-red-600 mb-2">제외된 행 ${bad.length}건: ${esc(bad.slice(0, 3).join(' / '))}${bad.length > 3 ? ' …' : ''}</p>` : ''}
-                    <div class="max-h-48 overflow-auto text-[11px] mb-3"><table class="w-full whitespace-nowrap"><tbody>${items.slice(0, 30).map(i => `<tr class="border-t"><td class="p-1">${esc(i.partId)}</td><td class="p-1 truncate max-w-[180px]">${esc(i.partName || '')}</td><td class="p-1">${esc(i.kind || '')}</td><td class="p-1">${esc(i.category || '')}</td><td class="p-1 text-right">안전 ${i.safetyStock ?? '-'}</td></tr>`).join('')}</tbody></table></div>
-                    <p class="text-[11px] text-gray-500 mb-3">빈칸은 기존 값이 유지됩니다. 현재고는 바뀌지 않습니다.</p>
+                    <div class="max-h-48 overflow-auto text-[11px] mb-3"><table class="w-full whitespace-nowrap"><tbody>${items.slice(0, 30).map(i => `<tr class="border-t"><td class="p-1">${esc(i.partId)}</td><td class="p-1 truncate max-w-[180px]">${esc(i.partName || '')}</td><td class="p-1">${esc(i.kind || '')}</td><td class="p-1">${esc(i.category || '')}</td><td class="p-1 text-right">현재고 ${i.stock ?? '-'}</td><td class="p-1 text-right">안전 ${i.safetyStock ?? '-'}</td></tr>`).join('')}</tbody></table></div>
+                    <p class="text-[11px] text-gray-500 mb-3">빈칸은 기존 값이 유지됩니다. 현재고 칸에 숫자를 넣으면 현재고가 그 수량으로 바뀌고 "조정" 이력이 남습니다.</p>
                     <button id="masterApplyBtn" onclick="applyMasterUpload()" class="w-full bg-[#1f7a3d] text-white py-3 rounded-xl font-bold">${items.length}건 저장</button>`);
             } catch (e) { showToast('파일 확인 실패: ' + (e.message || e), 'error'); }
         }
@@ -1564,7 +1476,7 @@
             const head = MASTER_COLS.map(c => c[1]);
             const aoa = [head].concat(blank ? [] : masterData.slice().sort((a, b) => String(a.partId).localeCompare(String(b.partId))).map(d => MASTER_COLS.map(([k]) => k === 'note' ? (d.note || '') : (k === 'kind' ? (d.kind || '저장품') : d[k] == null ? '' : d[k]))));
             const tag = ctx.branch === 'all' ? '전지사' : branchName(ctx.branch);
-            saveXlsx([{ name: '입력양식', aoa, widths: [16, 34, 10, 8, 18, 12, 10, 10, 14, 14, 12, 24] }], `저장품_기준정보_${blank ? '빈양식' : tag + '_' + new Date().toISOString().slice(0, 10)}.xlsx`);
+            saveXlsx([{ name: '입력양식', aoa, widths: [16, 34, 10, 8, 10, 18, 12, 10, 10, 14, 14, 12, 24] }], `저장품_기준정보_${blank ? '빈양식' : tag + '_' + new Date().toISOString().slice(0, 10)}.xlsx`);
         }
 
         /* ---------- 부외자산 ---------- */
